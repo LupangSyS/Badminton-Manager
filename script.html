@@ -14,7 +14,7 @@ const addPlayerToCourt = (court, player) => {
         court.players[emptyIdx] = player;
     } else {
         // ถ้าไม่เจอหลุม (และยังไม่เต็ม 4) ให้ต่อท้ายปกติ
-        if (countRealPlayers(court)< 4) {
+        if (court.players.length < 4) {
             court.players.push(player);
         } else {
             console.error("สนามเต็มแล้ว ยัดไม่เข้า!");
@@ -334,12 +334,14 @@ const autoFillCourts = () => {
         }
     });
 };
-// ปุ่ม 1: สุ่มคน (ใช้ Logic เดิมที่ฉลาดๆ มีการเช็คคู่ซ้ำ/เช็ค Booking)
+
+// ปุ่ม 1: สุ่มคน (Smart Fill)
 const fillCourtSmart = (courtIdx) => {
     const court = courts[courtIdx];
-    const needed = 4 - court.players.length;
     
-    // เรียกใช้ฟังก์ชันสุ่มตัวเดิม (getSmartDraft)
+    // 🔴 แก้ตรงนี้: ใช้ countRealPlayers นับคนจริงๆ
+    const needed = 4 - countRealPlayers(court);
+    
     const candidates = getSmartDraft(needed);
     
     if (candidates.length > 0) {
@@ -347,6 +349,7 @@ const fillCourtSmart = (courtIdx) => {
             p.status = 'playing';
             p.sessionGames = 0;
             if(p.isFastPass) p.isFastPass = false;
+            // ใช้ addPlayerToCourt ยัดลงรู
             addPlayerToCourt(court, p);
         });
         renderCourts();
@@ -355,56 +358,49 @@ const fillCourtSmart = (courtIdx) => {
     }
 };
 
-// ปุ่ม 2: ตามคิว (ใครมาก่อนได้ลงก่อน ไม่สนลูกใคร)
-// แก้ไข: ปุ่ม "ตามคิว" แบบปลอดภัย (Booking Safe)
+// ปุ่ม 2: ตามคิว (Queue Fill)
 const fillCourtQueue = (courtIdx) => {
     const court = courts[courtIdx];
-    const needed = 4 - court.players.length;
+
+    // 🔴 แก้ตรงนี้: ใช้ countRealPlayers นับคนจริงๆ
+    const needed = 4 - countRealPlayers(court);
     
-    // ดึงคนที่รออยู่ (เรียงตามเวลา)
     const waiting = players
         .filter(p => p.status === 'waiting'&& !p.isResting)
         .sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
 
     if (waiting.length === 0) { alert('ไม่มีคนรอคิวครับ'); return; }
 
-    // ดูคนแรกสุดในคิว
     const firstP = waiting[0];
     let candidates = [];
 
-    // 🛡️ กรณี 1: คนแรก "มี Booking" (มาเป็นคู่/ทีม)
+    // 🛡️ กรณี 1: คนแรก "มี Booking"
     if (firstP.bookingId) {
-        // ดึงเพื่อนร่วมแก๊งทั้งหมดมา
         const group = waiting.filter(p => p.bookingId === firstP.bookingId);
-        // เรียงลำดับทีมให้สวยงาม
         group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
 
-        // เช็คว่าที่ว่างพอไหม?
         if (group.length > needed) {
             alert(`⚠️ ลงไม่ได้! คิวต่อไปคือ Booking (${group.length} คน) แต่ที่ว่างเหลือแค่ ${needed} ที่`);
-            return; // ❌ หยุดทันที ห้ามฉีกคู่
+            return;
         }
         candidates = group;
     } 
-    // 🛡️ กรณี 2: คนแรก "มาเดี่ยว" (ไม่มี Booking)
+    // 🛡️ กรณี 2: มาเดี่ยว
     else {
-        // ดึงทีละคน จนกว่าจะครบ หรือไปชนคนที่มี Booking
         for (let i = 0; i < waiting.length; i++) {
-            if (candidates.length >= needed) break; // ครบจำนวนที่ต้องการ
-            
+            if (candidates.length >= needed) break;
             const p = waiting[i];
-            if (p.bookingId) break; // ✋ หยุด! ถ้าไปชนคนที่มี Booking (ให้กดเอา Booking ลงทีหลัง)
-            
+            if (p.bookingId) break; 
             candidates.push(p);
         }
     }
 
-    // เอาคนลงสนาม
     if (candidates.length > 0) {
         candidates.forEach(p => {
             p.status = 'playing';
             p.sessionGames = 0;
             if(p.isFastPass) p.isFastPass = false;
+            // ใช้ addPlayerToCourt ยัดลงรู
             addPlayerToCourt(court, p);
         });
         renderCourts();
@@ -977,9 +973,12 @@ const toggleRest = (id) => {
 // ✨ NEW: เปิด Modal เลือกคนลงช่องว่าง (Manual Add)
 let currentManualAddCourtIdx = null;
 
+// ✨ NEW: เปิด Modal เลือกคนลงช่องว่าง (Manual Add)
+let currentManualAddCourtIdx = null;
+
 const openManualAddModal = (courtIdx) => {
-    // เช็คก่อนว่าสนามเต็มยัง (กันเหนียว)
-    if (courts[courtIdx].players.length >= 4) { alert('สนามเต็มแล้วเพื่อน!'); return; }
+    // 🔴 แก้ตรงนี้: ใช้ countRealPlayers แทน .length ไม่งั้นมันนับรูว่างไปด้วย
+    if (countRealPlayers(courts[courtIdx]) >= 4) { alert('สนามเต็มแล้วเพื่อน!'); return; }
 
     currentManualAddCourtIdx = courtIdx;
 
@@ -995,7 +994,6 @@ const openManualAddModal = (courtIdx) => {
     html += `<div style="display:flex; flex-direction:column; gap:5px;">`;
     
     waiting.forEach(p => {
-        // โชว์สถานะจองด้วย ถ้ามี
         let label = p.bookingId ? `🔒 ${p.name} (Team)` : p.name;
         let style = p.bookingId ? 'background:#f3e5f5; color:#6a1b9a; border:1px solid #ce93d8;' : '';
         
@@ -1006,16 +1004,11 @@ const openManualAddModal = (courtIdx) => {
     
     html += `</div>`;
 
-    // ยัดใส่ Modal จองเดิม (Re-use)
     document.getElementById('booking-inputs').innerHTML = html;
     
-    // ซ่อนปุ่ม "ยืนยัน" ของเดิมไปก่อน (เพราะเราใช้ปุ่มใน List กดแล้วจบเลย)
-    // แต่เพื่อความง่าย ใช้ CSS ซ่อนเฉพาะหน้างาน หรือจะปล่อยไว้ก็ได้ (แต่กดไปก็ไม่มีผลเพราะเราไม่ได้ set type)
-    // เอาแบบบ้านๆ คือ เปลี่ยนเนื้อหา Modal Actions ชั่วคราว
+    // เปลี่ยนปุ่มข้างล่าง
     const modalActions = document.querySelector('#booking-modal .modal-actions');
-    const oldActions = modalActions.innerHTML; // เก็บของเก่าไว้
-    
-    // เปลี่ยนปุ่มข้างล่างเป็น "ยกเลิก" ปุ่มเดียวพอ
+    const oldActions = modalActions.innerHTML; 
     modalActions.innerHTML = `<button class="secondary" onclick="closeModal('booking-modal'); restoreModal('${escape(oldActions)}');">ยกเลิก</button>`;
     
     document.getElementById('booking-modal').style.display = 'flex';
