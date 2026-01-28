@@ -1,4 +1,26 @@
 <script>
+  // ✨ NEW: ฟังก์ชันช่วยนับจำนวนคนจริงๆ (ไม่นับช่องว่าง)
+const countRealPlayers = (court) => {
+    return court.players.filter(p => p !== null && p !== undefined).length;
+};
+
+// ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
+const addPlayerToCourt = (court, player) => {
+    // หาช่องที่เป็น null หรือ undefined ก่อน
+    let emptyIdx = court.players.findIndex(p => p === null || p === undefined);
+    
+    if (emptyIdx !== -1) {
+        // ถ้าเจอหลุม ให้เสียบลงหลุม
+        court.players[emptyIdx] = player;
+    } else {
+        // ถ้าไม่เจอหลุม (และยังไม่เต็ม 4) ให้ต่อท้ายปกติ
+        if (countRealPlayers(court)< 4) {
+            court.players.push(player);
+        } else {
+            console.error("สนามเต็มแล้ว ยัดไม่เข้า!");
+        }
+    }
+};
 // --- Data ---
 let players = []; 
 let courts = [];  
@@ -15,9 +37,10 @@ const AUTO_START_DELAY = 30;
 // --- Init ---
 function init() {
     renderCourts();
-    updateQueueDisplay();
+    updateQueueDisplay(); // ในนี้มี updateNextMatchPanel แล้ว ก็จบเลย
     setInterval(autoFillCourts, 1000);
-    updateCustomHoursInputs(); // Init cost calc inputs
+    setInterval(updateQueueDisplay, 60000); 
+    updateCustomHoursInputs(); 
 }
 
 // --- VIEW SWITCHING ---
@@ -226,8 +249,10 @@ function renderCourtButtons(court, idx) {
     
     if (court.state === 'playing') return `<button class="danger" style="width:100%;" onclick="stopGame(${idx})">จบเกม</button>`;
 
-    // ถ้าคนครบ 4 (แสดงปุ่มเริ่มเกม)
-    if (court.players.length === 4) {
+    // ✨ แก้ตรงนี้: ใช้ countRealPlayers แทน .length
+    const realCount = countRealPlayers(court);
+
+    if (realCount === 4) {
         if (court.autoStartTarget) {
             const remaining = Math.ceil((court.autoStartTarget - Date.now()) / 1000);
             if (remaining > 0) return `<button class="success btn-auto-start" style="width:100%;" onclick="startGame(${idx})">เริ่ม (Auto ${remaining}s)</button>`;
@@ -235,14 +260,13 @@ function renderCourtButtons(court, idx) {
         return `<button class="success" style="width:100%;" onclick="startGame(${idx})">เริ่มเกม</button>`;
     } 
     
-    // --- โค้ดใหม่ (แผงควบคุม 4 ปุ่ม) ---
-    
-    // 1. เช็คสถานะคิว ว่ามีความพร้อมสำหรับ Booking ไหม?
-    const waiting = players.filter(p => p.status === 'waiting'&& !p.isResting).sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
+    // ... (ส่วนล่างเหมือนเดิม เป๊ะๆ) ...
+    const waiting = players.filter(p => p.status === 'waiting').sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
     const head = waiting.length > 0 ? waiting[0] : null;
-    const needed = 4 - court.players.length;
+    // ใช้ realCount คำนวณที่ว่าง
+    const needed = 4 - realCount; 
 
-    // เช็คเงื่อนไข Booking
+    // ... (Logic ปุ่ม Booking เหมือนเดิม) ...
     let isBookingPair = false;
     let isBookingFour = false;
     let bookingSize = 0;
@@ -251,17 +275,13 @@ function renderCourtButtons(court, idx) {
         const group = players.filter(p => p.bookingId === head.bookingId && p.status === 'waiting');
         bookingSize = group.length;
 
-        // ถ้ากลุ่มจอง "ยัดลงที่ว่างได้พอดี" ให้เปิดปุ่มนั้น
         if (bookingSize <= needed) {
             if (bookingSize === 2) isBookingPair = true;
             if (bookingSize === 4) isBookingFour = true;
         }
     }
 
-    // สไตล์สำหรับปุ่มที่ Disabled (สีเทา)
     const disabledStyle = "background:#e0e0e0; color:#a0a0a0; cursor:not-allowed; border:1px solid #ccc;";
-    
-    // สไตล์ปุ่ม Booking (สีม่วง)
     const activePairStyle = "background:#9b59b6; color:white;";
     const activeFourStyle = "background:#8e44ad; color:white;";
 
@@ -271,13 +291,11 @@ function renderCourtButtons(court, idx) {
                 <button class="warning" style="flex:1;" onclick="fillCourtSmart(${idx})">🎲 สุ่ม</button>
                 <button style="background:#3498db; color:white; flex:1;" onclick="fillCourtQueue(${idx})">⏩ ตามคิว</button>
             </div>
-            
             <div style="display:flex; gap:4px;">
                 <button style="flex:1; ${isBookingPair ? activePairStyle : disabledStyle}" 
                     ${isBookingPair ? `onclick="fillCourtSmart(${idx})"` : 'disabled'}>
                     👥 จองคู่ ${isBookingPair ? '✅' : ''}
                 </button>
-                
                 <button style="flex:1; ${isBookingFour ? activeFourStyle : disabledStyle}" 
                     ${isBookingFour ? `onclick="fillCourtSmart(${idx})"` : 'disabled'}>
                     ⚔️ จอง 4 ${isBookingFour ? '✅' : ''}
@@ -297,7 +315,7 @@ const autoFillCourts = () => {
         // --- ❌ LOGIC เดิมที่เติมคนอัตโนมัติ โดนลบออกแล้ว --- 
 
         // ✅ LOGIC ใหม่: ทำงานเฉพาะตอนคนครบ 4 แล้วเท่านั้น (เพื่อนับถอยหลัง)
-        if (court.players.length === 4) {
+        if (countRealPlayers(court) === 4) {
             if (!court.autoStartTarget) { 
                 court.autoStartTarget = Date.now() + (AUTO_START_DELAY * 1000); 
                 renderCourts(); 
@@ -329,7 +347,7 @@ const fillCourtSmart = (courtIdx) => {
             p.status = 'playing';
             p.sessionGames = 0;
             if(p.isFastPass) p.isFastPass = false;
-            court.players.push(p);
+            addPlayerToCourt(court, p);
         });
         renderCourts();
     } else {
@@ -387,96 +405,78 @@ const fillCourtQueue = (courtIdx) => {
             p.status = 'playing';
             p.sessionGames = 0;
             if(p.isFastPass) p.isFastPass = false;
-            court.players.push(p);
+            addPlayerToCourt(court, p);
         });
         renderCourts();
     }
 };
 // แก้ไข: เพิ่ม Logic ป้องกันการฉีกกลุ่มจอง (ถ้าคนจองเยอะกว่าที่ว่าง จะไม่ดึง)
-function getSmartDraft(count) {
-    let pool = players.filter(p => p.status === 'waiting' && !p.isResting);
+// แก้ไข: เพิ่ม excludeIds (Set) เพื่อให้ข้ามคนที่ถูกเลือกไปแล้วใน Simulation ได้
+function getSmartDraft(count, excludeIds = new Set()) {
+    // กรองคน: รออยู่ + ไม่พัก + ไม่อยู่ในรายชื่อที่ต้องข้าม (excludeIds)
+    let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
+    
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
 
-    let selected = [];
-    let usedIds = new Set();
-    
-    // วนลูปจนกว่าจะได้คนครบตามจำนวน (count)
-    while (selected.length < count) {
-        // 1. หา "Captain" หรือคนนำทีมที่จะดึงลงเป็นคนถัดไป
-        // (ต้องเป็นคนที่ว่างอยู่ และถ้าเป็นกลุ่ม Booking ต้องยัดลงที่เหลือได้พอดี)
-        let captain = null;
+    if (pool.length === 0) return [];
+
+    // วนลูปให้แต่ละคนลองเป็นกัปตันทีม
+    for (let i = 0; i < pool.length; i++) {
+        let captain = pool[i];
         
-        for (let i = 0; i < pool.length; i++) {
-            const p = pool[i];
-            
-            // ข้ามคนที่ถูกเลือกไปแล้ว
-            if (usedIds.has(p.id)) continue;
-
-            // เช็คเงื่อนไข
-            if (p.bookingId) {
-                // ถ้าเป็นกลุ่มจอง
-                const group = pool.filter(x => x.bookingId === p.bookingId);
-                // เรียงลำดับทีม (เผื่อกรณีจอง 4)
-                group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
-
-                // 📌 จุดแก้บั๊ก: เช็คว่ากลุ่มนี้ "ยัดลงที่เหลือ" ได้ไหม?
-                // เช่น ขาด 1 แต่มา 2 -> (2 <= 1) เป็นเท็จ -> ข้ามไปเลย!
-                if (group.length <= (count - selected.length)) {
-                    captain = p; // คนนี้ผ่าน! เอาทั้งแก๊ง
-                    break; 
-                }
-                // ถ้าไม่ผ่าน ลูปจะวนไปดูคนถัดไปเอง (Skip)
-            } else {
-                // ถ้ามาเดี่ยว ยัดลงได้เสมอ (เพราะ Loop while เราคุมจำนวนไว้อยู่แล้ว)
-                captain = p;
-                break;
-            }
-        }
-
-        // ถ้าหาจนทั่วแล้วไม่เจอใครที่ลงได้เลย (เช่น เหลือ 1 ที่ แต่ทั้งคิวมีแต่คู่จอง)
-        if (!captain) break;
-
-        // 2. ดึงตัวลงมา (Captain และพรรคพวก)
-        if (captain.bookingId) {
-            // เคสจอง: เอามาทั้งแก๊ง
-            const group = pool.filter(x => x.bookingId === captain.bookingId);
-            group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
-            
-            group.forEach(p => {
-                if (!usedIds.has(p.id)) {
-                    selected.push(p);
-                    usedIds.add(p.id);
-                }
-            });
-        } else {
-            // เคสเดี่ยว: เอาลงมา 1 คน
-            selected.push(captain);
-            usedIds.add(captain.id);
-
-            // 3. ถ้ายังขาดคน (เช่น ต้องการ 2 ได้มาแล้ว 1 โสด) -> ลองหาคู่ Smart Partner
-            // Logic นี้จะช่วยหาคนที่ไม่ค่อยได้คู่กันมาจับคู่ (แต่จะไม่ดึงคนที่มี Booking นะ)
-            while (selected.length < count) {
-                 // หาคู่ให้คนล่าสุดที่เพิ่งดึงลงมา
-                 let currentLast = selected[selected.length - 1];
-                 let partner = findBestPartnerInfinite(currentLast, pool, usedIds);
-                 
-                 if (partner) {
-                     selected.push(partner);
-                     usedIds.add(partner.id);
-                 } else {
-                     // ถ้าหาคู่ที่เหมาะสมไม่ได้แล้ว ก็หยุดหา แล้ววนลูปใหญ่ไปหยิบคนถัดไปตามคิวแทน
-                     break; 
-                 }
-            }
+        // ลองจัดทีมโดยใช้ pool ที่กรองแล้ว
+        let team = tryBuildTeam(captain, pool, count); 
+        
+        // ถ้าได้ครบตามจำนวน -> ส่งทีมนี้กลับไปเลย
+        if (team.length === count) {
+            return team;
         }
     }
     
-    // เช็คครั้งสุดท้าย: ถ้าหาคนได้ไม่ครบตามที่ขอ ให้คืนค่าว่าง (หรือจะให้ส่งเท่าที่มีก็ได้ แต่เพื่อความชัวร์ระบบเดิมคือคืนค่าว่าง)
-    if (selected.length === count) return selected;
-    
-    // ถ้าหาไม่ได้จริงๆ (เช่น ขาด 1 แต่มีแต่คู่จองจริงๆ)
-    console.warn("หาคนลงให้ครบตามจำนวนไม่ได้ (ติดเงื่อนไข Booking)");
     return [];
+}
+
+// ✨ NEW: ฟังก์ชันช่วยจัดทีม (แยกออกมาให้เรียกใช้ง่ายๆ)
+function tryBuildTeam(captain, currentPool, targetCount) {
+    let selected = [];
+    let usedIds = new Set();
+
+    // 1. ใส่กัปตัน (และพวกพ้องจอง)
+    if (captain.bookingId) {
+        const group = currentPool.filter(x => x.bookingId === captain.bookingId);
+        // ถ้ากลุ่มจอง ใหญ่เกินที่ว่าง -> จัดทีมล้มเหลว
+        if (group.length > targetCount) return []; 
+        
+        group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
+        group.forEach(p => { selected.push(p); usedIds.add(p.id); });
+    } else {
+        selected.push(captain);
+        usedIds.add(captain.id);
+    }
+
+    // 2. ถ้ายังไม่ครบ ให้หาคนมาเติม
+    while (selected.length < targetCount) {
+        let nextPlayer = null;
+        
+        // ถ้าต้องการคู่ (และไม่ใช่การจอง) ให้หาคู่ที่เหมาะสม (Smart Partner)
+        if (selected.length % 2 !== 0 && !selected[selected.length-1].bookingId) {
+            let currentSolo = selected[selected.length - 1];
+            // หาคู่จาก pool ที่เหลืออยู่
+            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds);
+        } else {
+            // หาคนถัดไปในคิว ที่ยังไม่ถูกเลือก และไม่มี Booking
+            nextPlayer = currentPool.find(p => !usedIds.has(p.id) && !p.bookingId);
+        }
+
+        if (nextPlayer) {
+            selected.push(nextPlayer);
+            usedIds.add(nextPlayer.id);
+        } else {
+            break; // หาต่อไม่ได้แล้ว
+        }
+    }
+    
+    return selected;
 }
 
 
@@ -591,37 +591,28 @@ function resolveGame(winningTeamIdx) {
 
 function sendToQueue(playerId) { const pl = players.find(x => x.id === playerId); if(pl) { pl.status = 'waiting'; pl.joinedQueueAt = Date.now(); pl.bookingId = null; pl.bookingTeam = null; pl.sessionGames = 0; } }
 // เปลี่ยนเป็น Modern Syntax (Arrow Function)
+// แก้ไข: ลบคนออกแบบ "เจาะรู" (Fixed Slot) ไม่ให้คนอื่นเลื่อนตำแหน่ง
 const kickPlayer = (courtIdx, slotIdx) => {
     const court = courts[courtIdx];
     const player = court.players[slotIdx];
 
-    // ใช้ Template Literals (`...`) แทนการต่อ String
-    if (!player || !confirm(`ต้องการเปลี่ยนตัว ${player.name} ออกใช่ไหม?`)) return;
+    if (!player) return; // ถ้าว่างอยู่แล้วก็จบ
+    if (!confirm(`ต้องการเปลี่ยนตัว ${player.name} ออกใช่ไหม?`)) return;
 
-    // 1. ดึงคนกลับไปต่อคิว (Logic เดิม)
+    // 1. ดึงคนกลับไปต่อคิว
     sendToQueue(player.id);
     
-    // 2. ลบออกจากสนาม
-    // ใช้ array.splice เพื่อเอาออกเฉพาะจุดนั้น
-    court.players.splice(slotIdx, 1);
+    // 2. ✨ แก้ตรงนี้: เปลี่ยนเป็น null แทนการ splice
+    court.players[slotIdx] = null;
     
-    // 3. ✨ NEW LOGIC: ถ้าเกมเล่นอยู่ ต้องหยุดเกมทันที! ✨
+    // 3. หยุดเกมถ้าเล่นอยู่
     if (court.state === 'playing') {
-        // หยุดเวลา
         clearInterval(court.interval);
-        
-        // เปลี่ยนสถานะกลับเป็น 'empty' เพื่อให้ autoFill ทำงานต่อได้
         court.state = 'empty'; 
-        
-        // Reset ตัวจับเวลา visual นิดหน่อยให้รู้ว่าหยุด
-        // (แต่เวลาที่เล่นไปแล้วยังเก็บไว้ใน court.timer นะ ถ้าอยากให้เล่นต่อจากเดิม)
         console.log(`Game paused at ${court.timer}s`);
     }
     
-    // เคลียร์เป้าหมาย Auto Start (กันมันนับถอยหลังมั่ว)
     court.autoStartTarget = null;
-    
-    // สั่งวาดหน้าจอใหม่
     renderCourts();
 };
 // --- UI HELPERS ---
@@ -869,29 +860,75 @@ function updateQueueDisplay() {
     const waiting = players.filter(p => p.status === 'waiting');
     waiting.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
     document.getElementById('queue-count').innerText = waiting.length;
-    list.innerHTML = waiting.map(p => {
-        let badgeClass = 'wait-green'; let badgeText = '<5m';
-        const min = (players.indexOf(p) + 1) * (AVG_GAME_DURATION / (courtCount * 2));
-        if (min > 10) { badgeClass = 'wait-red'; badgeText = '>10m'; } else if (min >= 5) { badgeClass = 'wait-orange'; badgeText = '5-10m'; }
-        return `<li class="player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}"><div class="player-info"><strong>${p.isFastPass?'🚀 ':''}${p.name}</strong>${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}<span class="wait-badge ${badgeClass}">${badgeText}</span></div><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
+
+    // --- 🧮 LOGIC คำนวณเวลาแบบ Real-time (ฉลาดขึ้น) ---
+    const rule = document.getElementById('game-rule').value;
+    const playersOutPerGame = (rule === 'winner_stay') ? 2 : 4;
+    const avgGameTime = 15; // นาที
+
+    // 1. สร้าง "Slot เวลาว่าง" จากสภาพจริงของคอร์ท
+    let availableSlots = [];
+    
+    courts.forEach(c => {
+        let remainingMins = 0;
         
-    }).join('');
-    list.innerHTML = waiting.map(p => {
-        let badgeClass = 'wait-green'; let badgeText = '<5m';
-        const min = (players.indexOf(p) + 1) * (AVG_GAME_DURATION / (courtCount * 2));
-        if (min > 10) { badgeClass = 'wait-red'; badgeText = '>10m'; } else if (min >= 5) { badgeClass = 'wait-orange'; badgeText = '5-10m'; }
+        if (c.state === 'playing') {
+            // ถ้าเล่นอยู่: เอาเวลามาตรฐาน - เวลาที่เล่นไปแล้ว
+            const playedMins = Math.floor(c.timer / 60);
+            remainingMins = Math.max(0, avgGameTime - playedMins);
+        } 
+        // ถ้าว่าง/จบเกมแล้ว (empty/post_game): remainingMins = 0 (พร้อมเสียบเลย)
+
+        // คอร์ทนี้รับคนได้กี่คน? ยัดเวลาว่างลงไปตามจำนวนที่นั่ง
+        for (let i = 0; i < playersOutPerGame; i++) {
+            availableSlots.push(remainingMins);
+        }
+    });
+
+    // 2. เรียงลำดับ Slot จาก "ว่างเร็วสุด" -> "ว่างช้าสุด"
+    availableSlots.sort((a, b) => a - b);
+    
+    const totalCapacity = availableSlots.length; // ความจุรวมต่อรอบ (เช่น 8 คน)
+
+    list.innerHTML = waiting.map((p, index) => {
+        // --- คำนวณเวลารอของคนนี้ ---
+        // ดูว่าคนนี้ตกที่ Slot ไหนของรอบ (Batch)
+        const batchIndex = index % totalCapacity;
         
-        // ✨ Logic สีสำหรับคนพัก
+        // ดูว่าต้องรอกี่รอบ (Round)
+        const rounds = Math.floor(index / totalCapacity);
+
+        // เวลารอ = เวลาว่างของ Slot นั้น + (จำนวนรอบ x 15 นาที)
+        // เช่น คิวที่ 1 ได้ Slot ของคอร์ทที่เหลือ 13 นาที -> รอ 13 นาที
+        // คิวที่ 9 (รอบถัดไป) ได้ Slot เดิม -> รอ 13 + 15 = 28 นาที
+        // *กันเหนียว: ถ้า index เกิน slot (กรณีเพิ่งเพิ่มคอร์ท) ให้ใช้สูตรบ้านๆ*
+        const baseWait = availableSlots[batchIndex] !== undefined ? availableSlots[batchIndex] : 0;
+        const estimatedWaitMins = baseWait + (rounds * avgGameTime);
+        
+        // --- ตัดเกรดสี ---
+        let badgeClass = 'wait-green'; 
+        let badgeText = `< ${estimatedWaitMins}m`; 
+        
+        if (estimatedWaitMins > 20) { badgeClass = 'wait-red'; badgeText = `~${estimatedWaitMins}m`; }
+        else if (estimatedWaitMins > 10) { badgeClass = 'wait-orange'; badgeText = `~${estimatedWaitMins}m`; }
+        else if (estimatedWaitMins > 0) { badgeText = `~${estimatedWaitMins}m`; } // 1-9 นาที
+        else { badgeText = 'Now!'; badgeClass = 'wait-green'; } // 0 นาที (เสียบได้เลย)
+        
+        // Logic สีสำหรับคนพัก (เหมือนเดิม)
         const itemClass = p.isResting ? 'player-item resting' : `player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}`;
         const opacityStyle = p.isResting ? 'opacity: 0.6; background: #ddd;' : '';
         const namePrefix = p.isResting ? '💤 ' : (p.isFastPass ? '🚀 ' : '');
+
+        const waitBadge = !p.isResting 
+            ? `<span class="wait-badge ${badgeClass}" title="รอประมาณ ${estimatedWaitMins} นาที">${badgeText}</span>` 
+            : '<small style="color:gray; font-weight:bold; margin-left:5px;">(พัก)</small>';
 
         return `
             <li class="${itemClass}" style="${opacityStyle}">
                 <div class="player-info">
                     <strong>${namePrefix}${p.name}</strong>
                     ${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}
-                    ${!p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray; font-weight:bold; margin-left:5px;">(พัก)</small>'}
+                    ${waitBadge}
                 </div>
                 
                 <button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">
@@ -901,6 +938,7 @@ function updateQueueDisplay() {
                 <button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button>
             </li>`;
     }).join('');
+    updateNextMatchPanel();
 }
 
 function formatTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; }
@@ -988,34 +1026,89 @@ window.restoreModal = (oldContent) => {
     document.querySelector('#booking-modal .modal-actions').innerHTML = unescape(oldContent);
 };
 
-// ✨ NEW: ยืนยันดึงคนลงสนาม
+
+// ✨ NEW: ยืนยันดึงคนลงสนาม (ฉบับรองรับ Fixed Slot)
 const confirmManualAdd = (playerId) => {
     const court = courts[currentManualAddCourtIdx];
     const p = players.find(x => x.id === playerId);
     
     if (!p) return;
-    if (court.players.length >= 4) { alert('ช้าไป! สนามเต็มแล้ว'); return; }
 
-    // ถ้าดึงคนที่มี Booking ลงมา -> ต้องดึงเพื่อนมาด้วยไหม? 
-    // โจทย์มึงคือ "1 ว่าง ต่อ 1 คน" (Manual) ดังนั้นกูจะดึง "แค่คนเดียว" นะ (Break Team)
-    // หรือถ้าอยากให้แจ้งเตือน booking ก็ทำได้ แต่อันนี้เอาแบบ Manual ดิบๆ ตามสั่ง
+    // 🔴 แก้จุดที่ 1: ใช้ countRealPlayers แทน .length
+    // เพื่อนับเฉพาะคนที่มีตัวตนจริงๆ ไม่นับรูว่าง
+    if (countRealPlayers(court) >= 4) { alert('ช้าไป! สนามเต็มแล้ว'); return; }
+
+    // ถ้าดึงคนที่มี Booking ลงมา -> ดึงคนเดียวตามที่สั่ง (Manual)
     
     p.status = 'playing';
     p.sessionGames = 0;
     if(p.isFastPass) p.isFastPass = false;
     
-    court.players.push(p);
+    // 🔴 แก้จุดที่ 2: ใช้ addPlayerToCourt แทน .push
+    // เพื่อให้มันเสียบลงรูว่าง (null) ที่มีอยู่ ไม่ใช่ไปต่อตูดแถว
+    addPlayerToCourt(court, p);
     
-    // ปิด Modal และวาดสนามใหม่
     closeModal('booking-modal');
     
-    // กู้คืนปุ่ม Modal เดิม (สำคัญมาก! ไม่งั้นปุ่มยืนยันจองหาย)
-    // *เทคนิคบ้านๆ: รีโหลดหน้าเว็บ หรือ set innerHTML กลับ* // แต่เพื่อความชัวร์ กูเขียน hardcode ปุ่มกลับไปให้เลยง่ายกว่า
+    // กู้คืนปุ่ม Modal เดิม
     document.querySelector('#booking-modal .modal-actions').innerHTML = 
         `<button class="secondary" onclick="closeModal('booking-modal')">ยกเลิก</button>
          <button class="success" onclick="confirmBooking()">ยืนยัน</button>`;
 
     renderCourts();
 };
+// ✨ NEW: อัปเดตพาเนลคู่ถัดไป (Next Match)
+// ✨ NEW: อัปเดตพาเนลคู่ถัดไป (Next Match) - แบบโชว์หลายคู่
+function updateNextMatchPanel() {
+    const container = document.getElementById('next-match-list');
+    const rule = document.getElementById('game-rule').value;
+    const needed = (rule === 'winner_stay') ? 2 : 4; 
+    
+    let html = '';
+    let excludeIds = new Set(); // รายชื่อคนที่ถูกเลือกไปแล้วใน Simulation
+    
+    // กำหนดจำนวนแมตช์ล่วงหน้าที่อยากโชว์ (เช่น โชว์เท่าจำนวนคอร์ทที่มี หรือจำกัดแค่ 4)
+    const matchesToShow = Math.min(courtCount, 4); 
+
+    for (let i = 0; i < matchesToShow; i++) {
+        // ดึงตัว โดยส่งรายชื่อคนที่ติดทีมไปแล้วในรอบก่อนๆ ไปด้วย (excludeIds)
+        const candidates = getSmartDraft(needed, excludeIds);
+        
+        if (candidates.length < needed) {
+            if (i === 0) html += `<div style="text-align:center; width:100%; color: #ccc;">⏳ รอคนครบทีม ...</div>`;
+            break; // ถ้าหาคนไม่พอแล้ว ก็หยุดเลย
+        }
+
+        // เก็บ ID คนที่ได้เล่นรอบนี้ ไว้กันไม่ให้ซ้ำในรอบหน้า
+        candidates.forEach(p => excludeIds.add(p.id));
+
+        // --- สร้าง HTML ของแต่ละ Match ---
+        html += `<div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); min-width: 200px;">
+            <div style="font-size:0.8em; color:#ddd; margin-bottom:5px;">📢 Match ${i + 1}</div>`;
+        
+        // ฟังก์ชันย่อยสร้างการ์ดจิ๋ว
+        const createCard = (p, color) => `
+            <div style="background:white; color:#333; padding:4px 8px; margin:2px 0; border-radius:4px; border-left:4px solid ${color}; font-size:0.9em; display:flex; justify-content:space-between;">
+                <span>${p.isFastPass?'🚀':''} ${p.name}</span>
+                ${p.bookingId ? '<span style="font-size:0.8em;">🔒</span>' : ''}
+            </div>`;
+
+        if (needed === 4) {
+            html += `<div style="display:flex; gap:5px;">
+                        <div style="flex:1;">${createCard(candidates[0], '#e74c3c')}${createCard(candidates[1], '#e74c3c')}</div>
+                        <div style="display:flex; align-items:center; font-weight:bold; color:#fff; font-size:0.8em;">VS</div>
+                        <div style="flex:1;">${createCard(candidates[2], '#3498db')}${createCard(candidates[3], '#3498db')}</div>
+                     </div>`;
+        } else {
+            html += `<div style="display:flex; flex-direction:column; gap:2px;">
+                        ${createCard(candidates[0], '#f1c40f')}
+                        ${createCard(candidates[1], '#f1c40f')}
+                     </div>`;
+        }
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+}
 init();
 </script>

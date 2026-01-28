@@ -54,7 +54,17 @@
                         <button class="secondary" onclick="openBookingModal('match')">4</button>
                     </div>
                 </div>
-
+<div id="next-match-panel" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 15px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    <h4 style="margin-top: 0; display: flex; align-items: center; gap: 10px; color: #ffffff !important; margin-bottom: 10px;">
+        📢 เตรียมตัวลงสนาม (Next Match)
+        <span style="font-size: 0.8em; font-weight: normal; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 20px;">Auto Preview</span>
+    </h4>
+    
+    <div id="next-match-list" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; justify-content: flex-start;">
+        <div style="text-align:center; color: #ddd; font-style: italic;">... กำลังคำนวณ ...</div>
+    </div>
+</div>
+</div>
                 <h4 style="margin: 10px 0;">รอ (<span id="queue-count">0</span>)</h4>
                 <div style="flex:1; max-height:300px; overflow-y:auto; padding-right:2px;">
                     <ul id="player-queue" class="player-list"></ul>
