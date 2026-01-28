@@ -68,7 +68,7 @@ function addPlayers() {
             bookingId: null,
             sessionGames: 0,
             isFastPass: isFastPass,
-            checkInTime: new Date()
+            checkInTime: new Date(),
             isResting: false // ✨ เพิ่มบรรทัดนี้: มาถึงต้องตื่นก่อน
         });
     });
@@ -212,7 +212,11 @@ function closeAndRest(idx) {
 }
 function getRuleLabel() { return document.getElementById('game-rule').value === 'winner_stay' ? "Fixed Quota" : ""; }
 function renderPlayerOnCourt(player, courtIdx, slotIdx) {
-    if (!player) return '<div class="player-on-court" style="opacity:0.5; background:#eee; color:#aaa; border:none;">ว่าง</div>';
+    if (!player) {
+        return `<div class="player-on-court" style="cursor:pointer; opacity:0.7; background:#f0f0f0; color:#888; border:2px dashed #ccc;" onclick="openManualAddModal(${courtIdx})" title="จิ้มเพื่อเลือกคนลง">
+            + ว่าง
+        </div>`;
+    }
     const rule = document.getElementById('game-rule').value;
     let badge = (rule === 'winner_stay') ? `<span class="quota-badge" style="background:${player.sessionGames >= 1 ? '#e67e22' : '#27ae60'}">G: ${player.sessionGames + 1}/2</span>` : '';
     return `<div class="player-on-court" title="เปลี่ยนตัว" onclick="kickPlayer(${courtIdx}, ${slotIdx})"><strong>${player.name}</strong><span style="font-size:0.8em; margin-top:2px;">(${player.gamesPlayed}P)</span>${badge}</div>`;
@@ -898,7 +902,7 @@ function updateQueueDisplay() {
             </li>`;
     }).join('');
 }
-}
+
 function formatTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
@@ -930,6 +934,88 @@ const toggleRest = (id) => {
     
     updateQueueDisplay();
     renderCourts(); // สั่งวาดปุ่มใหม่ด้วย เผื่อคนพักเป็นหัวแถว
+};
+
+// ✨ NEW: เปิด Modal เลือกคนลงช่องว่าง (Manual Add)
+let currentManualAddCourtIdx = null;
+
+const openManualAddModal = (courtIdx) => {
+    // เช็คก่อนว่าสนามเต็มยัง (กันเหนียว)
+    if (courts[courtIdx].players.length >= 4) { alert('สนามเต็มแล้วเพื่อน!'); return; }
+
+    currentManualAddCourtIdx = courtIdx;
+
+    // กรองคนรอ (เหมือนเดิม: ไม่เอาคนพัก, ไม่เอาคนเล่นอยู่)
+    const waiting = players
+        .filter(p => p.status === 'waiting' && !p.isResting)
+        .sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
+
+    if (waiting.length === 0) { alert('ไม่มีคนรอคิวเลยว่ะ!'); return; }
+
+    // สร้างปุ่มเลือกคน (List of Buttons)
+    let html = `<h4>👇 เลือกคนลง คอร์ท ${courtIdx + 1}</h4>`;
+    html += `<div style="display:flex; flex-direction:column; gap:5px;">`;
+    
+    waiting.forEach(p => {
+        // โชว์สถานะจองด้วย ถ้ามี
+        let label = p.bookingId ? `🔒 ${p.name} (Team)` : p.name;
+        let style = p.bookingId ? 'background:#f3e5f5; color:#6a1b9a; border:1px solid #ce93d8;' : '';
+        
+        html += `<button class="secondary" style="text-align:left; ${style}" onclick="confirmManualAdd(${p.id})">
+            ${p.isFastPass?'🚀 ':''}${label} <small style="float:right;">(${p.gamesPlayed}P)</small>
+        </button>`;
+    });
+    
+    html += `</div>`;
+
+    // ยัดใส่ Modal จองเดิม (Re-use)
+    document.getElementById('booking-inputs').innerHTML = html;
+    
+    // ซ่อนปุ่ม "ยืนยัน" ของเดิมไปก่อน (เพราะเราใช้ปุ่มใน List กดแล้วจบเลย)
+    // แต่เพื่อความง่าย ใช้ CSS ซ่อนเฉพาะหน้างาน หรือจะปล่อยไว้ก็ได้ (แต่กดไปก็ไม่มีผลเพราะเราไม่ได้ set type)
+    // เอาแบบบ้านๆ คือ เปลี่ยนเนื้อหา Modal Actions ชั่วคราว
+    const modalActions = document.querySelector('#booking-modal .modal-actions');
+    const oldActions = modalActions.innerHTML; // เก็บของเก่าไว้
+    
+    // เปลี่ยนปุ่มข้างล่างเป็น "ยกเลิก" ปุ่มเดียวพอ
+    modalActions.innerHTML = `<button class="secondary" onclick="closeModal('booking-modal'); restoreModal('${escape(oldActions)}');">ยกเลิก</button>`;
+    
+    document.getElementById('booking-modal').style.display = 'flex';
+};
+
+// ฟังก์ชันกู้คืนปุ่ม Modal เดิม (ตอนปิด)
+window.restoreModal = (oldContent) => {
+    document.querySelector('#booking-modal .modal-actions').innerHTML = unescape(oldContent);
+};
+
+// ✨ NEW: ยืนยันดึงคนลงสนาม
+const confirmManualAdd = (playerId) => {
+    const court = courts[currentManualAddCourtIdx];
+    const p = players.find(x => x.id === playerId);
+    
+    if (!p) return;
+    if (court.players.length >= 4) { alert('ช้าไป! สนามเต็มแล้ว'); return; }
+
+    // ถ้าดึงคนที่มี Booking ลงมา -> ต้องดึงเพื่อนมาด้วยไหม? 
+    // โจทย์มึงคือ "1 ว่าง ต่อ 1 คน" (Manual) ดังนั้นกูจะดึง "แค่คนเดียว" นะ (Break Team)
+    // หรือถ้าอยากให้แจ้งเตือน booking ก็ทำได้ แต่อันนี้เอาแบบ Manual ดิบๆ ตามสั่ง
+    
+    p.status = 'playing';
+    p.sessionGames = 0;
+    if(p.isFastPass) p.isFastPass = false;
+    
+    court.players.push(p);
+    
+    // ปิด Modal และวาดสนามใหม่
+    closeModal('booking-modal');
+    
+    // กู้คืนปุ่ม Modal เดิม (สำคัญมาก! ไม่งั้นปุ่มยืนยันจองหาย)
+    // *เทคนิคบ้านๆ: รีโหลดหน้าเว็บ หรือ set innerHTML กลับ* // แต่เพื่อความชัวร์ กูเขียน hardcode ปุ่มกลับไปให้เลยง่ายกว่า
+    document.querySelector('#booking-modal .modal-actions').innerHTML = 
+        `<button class="secondary" onclick="closeModal('booking-modal')">ยกเลิก</button>
+         <button class="success" onclick="confirmBooking()">ยืนยัน</button>`;
+
+    renderCourts();
 };
 init();
 </script>
