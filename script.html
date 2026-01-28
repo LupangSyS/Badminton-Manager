@@ -10,7 +10,7 @@ let matchLogs = [];
 
 // --- Configuration (Frozen Logic V4.0) ---
 const AVG_GAME_DURATION = 15; 
-const AUTO_START_DELAY = 10; 
+const AUTO_START_DELAY = 30; 
 
 // --- Init ---
 function init() {
@@ -75,12 +75,35 @@ function addPlayers() {
     updateQueueDisplay();
 }
 
-function removePlayer(id) {
-    if(!confirm('ต้องการลบชื่อนี้?')) return;
+const removePlayer = (id) => {
     const p = players.find(x => x.id === id);
-    if(p && p.status === 'playing') { alert('เล่นอยู่ ลบไม่ได้'); return; }
+    if (!p) return;
+
+    // เช็คก่อนลบ: ถ้าเล่นอยู่ ห้ามลบ
+    if(p.status === 'playing') { alert('เล่นอยู่ ลบไม่ได้ครับ'); return; }
+
+    // ✨ NEW: ถ้าติดจองอยู่ ต้องเคลียร์จองเพื่อนด้วย ไม่งั้นบั๊ก
+    if (p.bookingId) {
+        const others = players.filter(x => x.bookingId === p.bookingId && x.id !== id);
+        if (others.length > 0) {
+            if(!confirm(`⚠️ ${p.name} ติดจองอยู่กับ (${others.map(o=>o.name).join(', ')}) \nถ้าลบ Booking ของทั้งกลุ่มจะหายไปด้วย ยืนยันไหม?`)) return;
+            
+            // ล้าง Booking คนที่เหลือ (ให้กลายเป็นโสด)
+            players.forEach(x => {
+                if(x.bookingId === p.bookingId) {
+                    x.bookingId = null;
+                    x.bookingTeam = null;
+                }
+            });
+        }
+    } else {
+        if(!confirm(`ต้องการลบ ${p.name} ใช่ไหม?`)) return;
+    }
+
+    // ลบคนออกจากอาเรย์
     players = players.filter(p => p.id !== id);
     updateQueueDisplay();
+};
 }
 
 function resetStatsOnly() {
@@ -195,38 +218,60 @@ function renderPlayerOnCourt(player, courtIdx, slotIdx) {
 }
 function renderCourtButtons(court, idx) {
     if (!court.isOpened || court.state === 'post_game') return `<button class="secondary" style="width:100%;" disabled>...</button>`;
+    
     if (court.state === 'playing') return `<button class="danger" style="width:100%;" onclick="stopGame(${idx})">จบเกม</button>`;
-    else if (court.players.length === 4) {
+
+    // ถ้าคนครบ 4 (แสดงปุ่มเริ่มเกม)
+    if (court.players.length === 4) {
         if (court.autoStartTarget) {
             const remaining = Math.ceil((court.autoStartTarget - Date.now()) / 1000);
             if (remaining > 0) return `<button class="success btn-auto-start" style="width:100%;" onclick="startGame(${idx})">เริ่ม (Auto ${remaining}s)</button>`;
         }
         return `<button class="success" style="width:100%;" onclick="startGame(${idx})">เริ่มเกม</button>`;
-    } else return `<button class="secondary" style="width:100%;" disabled>รอคน...</button>`;
+    } 
+    
+// ... (โค้ดส่วนบนเหมือนเดิม) ...
+
+// --- โค้ดใหม่ (ท่อนล่างสุด) ---
+    
+    // เช็คคิวแรกสุด
+    const waiting = players.filter(p => p.status === 'waiting').sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
+    
+    // เช็คว่ามี Booking รออยู่ไหม (เอาแค่คนแรกสุด)
+    const firstP = waiting.length > 0 ? waiting[0] : null;
+    const bookingGroup = firstP && firstP.bookingId ? players.filter(p => p.bookingId === firstP.bookingId && p.status === 'waiting') : [];
+    
+    const needed = 4 - court.players.length;
+    let buttonsHTML = '';
+
+    // ✨ เงื่อนไข: ถ้ามี Booking รออยู่ และ "จำนวนคนพอดี" กับที่ว่าง -> โชว์ปุ่มสีม่วง
+    if (bookingGroup.length > 0 && bookingGroup.length <= needed) {
+        buttonsHTML += `
+            <button style="background:#9b59b6; color:white; flex:1.5;" onclick="fillCourtSmart(${idx})">
+                🔒 ลงคิวจอง (${bookingGroup.length} คน)
+            </button>
+        `;
+    } else {
+        // ถ้าไม่มี Booking หรือลงไม่ได้ -> โชว์ปุ่มสุ่มปกติ
+        buttonsHTML += `<button class="warning" style="flex:1;" onclick="fillCourtSmart(${idx})">🎲 สุ่ม</button>`;
+    }
+
+    // ปุ่มตามคิว (สีฟ้า) มีเสมอ
+    buttonsHTML += `<button style="background:#3498db; color:white; flex:1;" onclick="fillCourtQueue(${idx})">⏩ ตามคิว</button>`;
+
+    return `<div style="display:flex; gap:5px;">${buttonsHTML}</div>`;
 }
 
 // --- 🧠 SMART AUTO FILL (V5.1 Wave's Logic) ---
-function autoFillCourts() {
+// แก้ไข: ตัดการเติมคนอัตโนมัติออก เหลือไว้แค่ระบบนับถอยหลังเริ่มเกม
+const autoFillCourts = () => {
     courts.forEach((court, idx) => {
+        // เงื่อนไขพื้นฐาน: ต้องเปิดอยู่ / ไม่ได้เล่นอยู่ / ไม่ได้รอเคลียร์ผล
         if (!court.isOpened || court.state === 'playing' || court.state === 'post_game') return;
 
-        if (court.players.length < 4) {
-            court.autoStartTarget = null;
-            const needed = 4 - court.players.length;
-            
-            let candidates = getSmartDraft(needed);
-            
-            if (candidates.length > 0) {
-                candidates.forEach(p => {
-                    p.status = 'playing';
-                    p.sessionGames = 0;
-                    if(p.isFastPass) p.isFastPass = false;
-                    court.players.push(p);
-                });
-                renderCourts();
-            }
-        }
+        // --- ❌ LOGIC เดิมที่เติมคนอัตโนมัติ โดนลบออกแล้ว --- 
 
+        // ✅ LOGIC ใหม่: ทำงานเฉพาะตอนคนครบ 4 แล้วเท่านั้น (เพื่อนับถอยหลัง)
         if (court.players.length === 4) {
             if (!court.autoStartTarget) { 
                 court.autoStartTarget = Date.now() + (AUTO_START_DELAY * 1000); 
@@ -236,25 +281,180 @@ function autoFillCourts() {
                 startGame(idx); 
             }
             else {
+                // อัปเดตตัวเลขถอยหลังที่ปุ่มแบบ Real-time
                 const btn = document.querySelector(`#court-${idx} .btn-auto-start`);
                 if (btn) btn.innerHTML = `เริ่ม (Auto ${Math.ceil((court.autoStartTarget - Date.now()) / 1000)}s)`;
             }
+        } else {
+             // ถ้าคนไม่ครบ (เช่น กดเตะออก) ให้ยกเลิกการนับถอยหลังทันที
+             court.autoStartTarget = null;
         }
     });
-}
+};
+// ปุ่ม 1: สุ่มคน (ใช้ Logic เดิมที่ฉลาดๆ มีการเช็คคู่ซ้ำ/เช็ค Booking)
+const fillCourtSmart = (courtIdx) => {
+    const court = courts[courtIdx];
+    const needed = 4 - court.players.length;
+    
+    // เรียกใช้ฟังก์ชันสุ่มตัวเดิม (getSmartDraft)
+    const candidates = getSmartDraft(needed);
+    
+    if (candidates.length > 0) {
+        candidates.forEach(p => {
+            p.status = 'playing';
+            p.sessionGames = 0;
+            if(p.isFastPass) p.isFastPass = false;
+            court.players.push(p);
+        });
+        renderCourts();
+    } else {
+        alert('⚠️ คนในคิวไม่พอสำหรับสูตรสุ่ม หรือติดเงื่อนไขคู่ซ้ำ!');
+    }
+};
 
+// ปุ่ม 2: ตามคิว (ใครมาก่อนได้ลงก่อน ไม่สนลูกใคร)
+// แก้ไข: ปุ่ม "ตามคิว" แบบปลอดภัย (Booking Safe)
+const fillCourtQueue = (courtIdx) => {
+    const court = courts[courtIdx];
+    const needed = 4 - court.players.length;
+    
+    // ดึงคนที่รออยู่ (เรียงตามเวลา)
+    const waiting = players
+        .filter(p => p.status === 'waiting')
+        .sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
+
+    if (waiting.length === 0) { alert('ไม่มีคนรอคิวครับ'); return; }
+
+    // ดูคนแรกสุดในคิว
+    const firstP = waiting[0];
+    let candidates = [];
+
+    // 🛡️ กรณี 1: คนแรก "มี Booking" (มาเป็นคู่/ทีม)
+    if (firstP.bookingId) {
+        // ดึงเพื่อนร่วมแก๊งทั้งหมดมา
+        const group = waiting.filter(p => p.bookingId === firstP.bookingId);
+        // เรียงลำดับทีมให้สวยงาม
+        group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
+
+        // เช็คว่าที่ว่างพอไหม?
+        if (group.length > needed) {
+            alert(`⚠️ ลงไม่ได้! คิวต่อไปคือ Booking (${group.length} คน) แต่ที่ว่างเหลือแค่ ${needed} ที่`);
+            return; // ❌ หยุดทันที ห้ามฉีกคู่
+        }
+        candidates = group;
+    } 
+    // 🛡️ กรณี 2: คนแรก "มาเดี่ยว" (ไม่มี Booking)
+    else {
+        // ดึงทีละคน จนกว่าจะครบ หรือไปชนคนที่มี Booking
+        for (let i = 0; i < waiting.length; i++) {
+            if (candidates.length >= needed) break; // ครบจำนวนที่ต้องการ
+            
+            const p = waiting[i];
+            if (p.bookingId) break; // ✋ หยุด! ถ้าไปชนคนที่มี Booking (ให้กดเอา Booking ลงทีหลัง)
+            
+            candidates.push(p);
+        }
+    }
+
+    // เอาคนลงสนาม
+    if (candidates.length > 0) {
+        candidates.forEach(p => {
+            p.status = 'playing';
+            p.sessionGames = 0;
+            if(p.isFastPass) p.isFastPass = false;
+            court.players.push(p);
+        });
+        renderCourts();
+    }
+};
+// แก้ไข: เพิ่ม Logic ป้องกันการฉีกกลุ่มจอง (ถ้าคนจองเยอะกว่าที่ว่าง จะไม่ดึง)
 function getSmartDraft(count) {
     let pool = players.filter(p => p.status === 'waiting');
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
 
-    if (pool.length === 0) return [];
+    let selected = [];
+    let usedIds = new Set();
+    
+    // วนลูปจนกว่าจะได้คนครบตามจำนวน (count)
+    while (selected.length < count) {
+        // 1. หา "Captain" หรือคนนำทีมที่จะดึงลงเป็นคนถัดไป
+        // (ต้องเป็นคนที่ว่างอยู่ และถ้าเป็นกลุ่ม Booking ต้องยัดลงที่เหลือได้พอดี)
+        let captain = null;
+        
+        for (let i = 0; i < pool.length; i++) {
+            const p = pool[i];
+            
+            // ข้ามคนที่ถูกเลือกไปแล้ว
+            if (usedIds.has(p.id)) continue;
 
-    if (pool[0].bookingId) {
-        const bId = pool[0].bookingId;
-        const group = pool.filter(p => p.bookingId === bId);
-        if (group.length <= count) return group;
+            // เช็คเงื่อนไข
+            if (p.bookingId) {
+                // ถ้าเป็นกลุ่มจอง
+                const group = pool.filter(x => x.bookingId === p.bookingId);
+                // เรียงลำดับทีม (เผื่อกรณีจอง 4)
+                group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
+
+                // 📌 จุดแก้บั๊ก: เช็คว่ากลุ่มนี้ "ยัดลงที่เหลือ" ได้ไหม?
+                // เช่น ขาด 1 แต่มา 2 -> (2 <= 1) เป็นเท็จ -> ข้ามไปเลย!
+                if (group.length <= (count - selected.length)) {
+                    captain = p; // คนนี้ผ่าน! เอาทั้งแก๊ง
+                    break; 
+                }
+                // ถ้าไม่ผ่าน ลูปจะวนไปดูคนถัดไปเอง (Skip)
+            } else {
+                // ถ้ามาเดี่ยว ยัดลงได้เสมอ (เพราะ Loop while เราคุมจำนวนไว้อยู่แล้ว)
+                captain = p;
+                break;
+            }
+        }
+
+        // ถ้าหาจนทั่วแล้วไม่เจอใครที่ลงได้เลย (เช่น เหลือ 1 ที่ แต่ทั้งคิวมีแต่คู่จอง)
+        if (!captain) break;
+
+        // 2. ดึงตัวลงมา (Captain และพรรคพวก)
+        if (captain.bookingId) {
+            // เคสจอง: เอามาทั้งแก๊ง
+            const group = pool.filter(x => x.bookingId === captain.bookingId);
+            group.sort((a, b) => (a.bookingTeam || 0) - (b.bookingTeam || 0));
+            
+            group.forEach(p => {
+                if (!usedIds.has(p.id)) {
+                    selected.push(p);
+                    usedIds.add(p.id);
+                }
+            });
+        } else {
+            // เคสเดี่ยว: เอาลงมา 1 คน
+            selected.push(captain);
+            usedIds.add(captain.id);
+
+            // 3. ถ้ายังขาดคน (เช่น ต้องการ 2 ได้มาแล้ว 1 โสด) -> ลองหาคู่ Smart Partner
+            // Logic นี้จะช่วยหาคนที่ไม่ค่อยได้คู่กันมาจับคู่ (แต่จะไม่ดึงคนที่มี Booking นะ)
+            while (selected.length < count) {
+                 // หาคู่ให้คนล่าสุดที่เพิ่งดึงลงมา
+                 let currentLast = selected[selected.length - 1];
+                 let partner = findBestPartnerInfinite(currentLast, pool, usedIds);
+                 
+                 if (partner) {
+                     selected.push(partner);
+                     usedIds.add(partner.id);
+                 } else {
+                     // ถ้าหาคู่ที่เหมาะสมไม่ได้แล้ว ก็หยุดหา แล้ววนลูปใหญ่ไปหยิบคนถัดไปตามคิวแทน
+                     break; 
+                 }
+            }
+        }
     }
+    
+    // เช็คครั้งสุดท้าย: ถ้าหาคนได้ไม่ครบตามที่ขอ ให้คืนค่าว่าง (หรือจะให้ส่งเท่าที่มีก็ได้ แต่เพื่อความชัวร์ระบบเดิมคือคืนค่าว่าง)
+    if (selected.length === count) return selected;
+    
+    // ถ้าหาไม่ได้จริงๆ (เช่น ขาด 1 แต่มีแต่คู่จองจริงๆ)
+    console.warn("หาคนลงให้ครบตามจำนวนไม่ได้ (ติดเงื่อนไข Booking)");
+    return [];
+}
 
+    // ... (ส่วน Logic สุ่มหาคู่ ปกติ เหมือนเดิม) ...
     let selected = [];
     let usedIds = new Set();
     
@@ -393,12 +593,41 @@ function resolveGame(winningTeamIdx) {
     renderCourts();
 }
 
-function sendToQueue(playerId) { const pl = players.find(x => x.id === playerId); if(pl) { pl.status = 'waiting'; pl.joinedQueueAt = Date.now(); pl.bookingId = null; pl.sessionGames = 0; } }
-function kickPlayer(courtIdx, slotIdx) {
-    const court = courts[courtIdx]; const pObj = court.players[slotIdx]; if(!pObj || !confirm(`เปลี่ยนตัว ${pObj.name} ออก?`)) return;
-    sendToQueue(pObj.id); court.players.splice(slotIdx, 1); court.autoStartTarget = null; renderCourts();
-}
+function sendToQueue(playerId) { const pl = players.find(x => x.id === playerId); if(pl) { pl.status = 'waiting'; pl.joinedQueueAt = Date.now(); pl.bookingId = null; pl.bookingTeam = null; pl.sessionGames = 0; } }
+// เปลี่ยนเป็น Modern Syntax (Arrow Function)
+const kickPlayer = (courtIdx, slotIdx) => {
+    const court = courts[courtIdx];
+    const player = court.players[slotIdx];
 
+    // ใช้ Template Literals (`...`) แทนการต่อ String
+    if (!player || !confirm(`ต้องการเปลี่ยนตัว ${player.name} ออกใช่ไหม?`)) return;
+
+    // 1. ดึงคนกลับไปต่อคิว (Logic เดิม)
+    sendToQueue(player.id);
+    
+    // 2. ลบออกจากสนาม
+    // ใช้ array.splice เพื่อเอาออกเฉพาะจุดนั้น
+    court.players.splice(slotIdx, 1);
+    
+    // 3. ✨ NEW LOGIC: ถ้าเกมเล่นอยู่ ต้องหยุดเกมทันที! ✨
+    if (court.state === 'playing') {
+        // หยุดเวลา
+        clearInterval(court.interval);
+        
+        // เปลี่ยนสถานะกลับเป็น 'empty' เพื่อให้ autoFill ทำงานต่อได้
+        court.state = 'empty'; 
+        
+        // Reset ตัวจับเวลา visual นิดหน่อยให้รู้ว่าหยุด
+        // (แต่เวลาที่เล่นไปแล้วยังเก็บไว้ใน court.timer นะ ถ้าอยากให้เล่นต่อจากเดิม)
+        console.log(`Game paused at ${court.timer}s`);
+    }
+    
+    // เคลียร์เป้าหมาย Auto Start (กันมันนับถอยหลังมั่ว)
+    court.autoStartTarget = null;
+    
+    // สั่งวาดหน้าจอใหม่
+    renderCourts();
+};
 // --- UI HELPERS ---
 function renderMatchLog() {
     const tbody = document.getElementById('match-log-body');
@@ -571,20 +800,73 @@ function endSession() {
 
 // Modal & Queue
 let currentBookingType = '';
-function openBookingModal(type) { 
-    currentBookingType = type; 
-    const waiting = players.filter(p => p.status === 'waiting' && !p.bookingId);
+// แก้ไข: ใช้ Dropdown เลือกคน เพื่อระบุตำแหน่ง/ทีม ได้ชัดเจน
+const openBookingModal = (type) => {
+    currentBookingType = type;
+    // ดึงคนที่ว่างและยังไม่ได้จอง
+    const waiting = players
+        .filter(p => p.status === 'waiting' && !p.bookingId)
+        .sort((a,b) => a.joinedQueueAt - b.joinedQueueAt); // เรียงตามคิว
+
+    // สร้างตัวเลือกใน Dropdown
+    const options = waiting.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    
     let html = '';
-    if (waiting.length < (type === 'pair' ? 2 : 4)) html = '<p style="color:red">คนว่างไม่พอ!</p>';
-    else { html = `<p>เลือก ${type === 'pair' ? 2 : 4} คน:</p>`; waiting.forEach(p => { html += `<div><input type="checkbox" name="book-p" value="${p.id}"> ${p.name}</div>`; }); }
-    document.getElementById('booking-inputs').innerHTML = html; document.getElementById('booking-modal').style.display = 'flex'; 
-}
-function confirmBooking() {
-    const cbs = document.querySelectorAll('input[name="book-p"]:checked');
-    if (cbs.length !== (currentBookingType === 'pair' ? 2 : 4)) { alert('เลือกคนไม่ครบ'); return; }
-    const bId = 'book-' + (++bookingCounter); cbs.forEach(cb => { const p = players.find(x => x.id == cb.value); if(p) p.bookingId = bId; });
-    closeModal('booking-modal'); updateQueueDisplay();
-}
+    if (type === 'pair') {
+        html += `<h4>👥 จองคู่ (2 คน)</h4>`;
+        html += `<label>คนแรก:</label><select id="b-p1" style="width:100%; margin-bottom:10px; padding:5px;">${options}</select>`;
+        html += `<label>คนที่สอง:</label><select id="b-p2" style="width:100%; margin-bottom:10px; padding:5px;">${options}</select>`;
+    } else { // match (4 คน)
+        html += `<h4>⚔️ จองแมตช์ (4 คน / 2 ทีม)</h4>`;
+        
+        // Team 1 (สีชมพู)
+        html += `<div style="background:#ffcdd2; padding:10px; border-radius:8px; margin-bottom:10px;">`;
+        html += `<strong style="color:#b71c1c;">Team 1 (สีชมพู):</strong>`;
+        html += `<select id="b-p1" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
+        html += `<select id="b-p2" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
+        html += `</div>`;
+        
+        // Team 2 (สีฟ้า)
+        html += `<div style="background:#bbdefb; padding:10px; border-radius:8px;">`;
+        html += `<strong style="color:#0d47a1;">Team 2 (สีฟ้า):</strong>`;
+        html += `<select id="b-p3" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
+        html += `<select id="b-p4" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
+        html += `</div>`;
+    }
+    
+    document.getElementById('booking-inputs').innerHTML = html; 
+    document.getElementById('booking-modal').style.display = 'flex';
+};
+// แก้ไข: บันทึกข้อมูล Team (1 หรือ 2) ลงไปในตัวผู้เล่นด้วย
+const confirmBooking = () => {
+    const ids = [];
+    if (currentBookingType === 'pair') {
+        ids.push({id: document.getElementById('b-p1').value, team: 1});
+        ids.push({id: document.getElementById('b-p2').value, team: 1});
+    } else {
+        ids.push({id: document.getElementById('b-p1').value, team: 1}); // T1 คนที่ 1
+        ids.push({id: document.getElementById('b-p2').value, team: 1}); // T1 คนที่ 2
+        ids.push({id: document.getElementById('b-p3').value, team: 2}); // T2 คนที่ 1
+        ids.push({id: document.getElementById('b-p4').value, team: 2}); // T2 คนที่ 2
+    }
+
+    // ดัก Error: ห้ามเลือกคนซ้ำ!
+    const unique = new Set(ids.map(x => x.id));
+    if (unique.size !== ids.length) { alert('❌ เลือกชื่อซ้ำกันไม่ได้ครับ!'); return; }
+
+    const bId = 'book-' + (++bookingCounter);
+    
+    ids.forEach(x => {
+        const p = players.find(pl => pl.id == x.id);
+        if (p) {
+            p.bookingId = bId;
+            p.bookingTeam = x.team; // ✨ เพิ่มฟิลด์นี้: ระบุทีมชัดเจน
+        }
+    });
+
+    closeModal('booking-modal'); 
+    updateQueueDisplay();
+};
 function updateQueueDisplay() {
     const list = document.getElementById('player-queue');
     const waiting = players.filter(p => p.status === 'waiting');
@@ -594,11 +876,28 @@ function updateQueueDisplay() {
         let badgeClass = 'wait-green'; let badgeText = '<5m';
         const min = (players.indexOf(p) + 1) * (AVG_GAME_DURATION / (courtCount * 2));
         if (min > 10) { badgeClass = 'wait-red'; badgeText = '>10m'; } else if (min >= 5) { badgeClass = 'wait-orange'; badgeText = '5-10m'; }
-        return `<li class="player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}"><div class="player-info"><strong>${p.isFastPass?'🚀 ':''}${p.name}</strong>${p.bookingId?'<small>🔒</small>':''}<span class="wait-badge ${badgeClass}">${badgeText}</span></div><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
+        return `<li class="player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}"><div class="player-info"><strong>${p.isFastPass?'🚀 ':''}${p.name}</strong>$${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}<span class="wait-badge ${badgeClass}">${badgeText}</span></div><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
     }).join('');
 }
 function formatTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
+// ✨ NEW: ฟังก์ชันยกเลิกการจอง (กดที่กุญแจ)
+const cancelBooking = (bId) => {
+    // หาดูซิว่ากลุ่มนี้มีใครบ้าง
+    const group = players.filter(p => p.bookingId === bId);
+    if(group.length === 0) return;
+
+    if(!confirm(`ต้องการ "ยกเลิกการจอง" ของกลุ่มนี้ (${group.map(p=>p.name).join(', ')}) ใช่ไหม? \n(คนจะยังอยู่ในคิวเหมือนเดิม)`)) return;
+    
+    // ล้างค่า Booking ออกให้หมด
+    players.forEach(p => {
+        if(p.bookingId === bId) {
+            p.bookingId = null;
+            p.bookingTeam = null;
+        }
+    });
+    updateQueueDisplay();
+};
 init();
 </script>
