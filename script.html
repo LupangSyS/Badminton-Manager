@@ -69,6 +69,7 @@ function addPlayers() {
             sessionGames: 0,
             isFastPass: isFastPass,
             checkInTime: new Date()
+            isResting: false // ✨ เพิ่มบรรทัดนี้: มาถึงต้องตื่นก่อน
         });
     });
     input.value = '';
@@ -104,7 +105,7 @@ const removePlayer = (id) => {
     players = players.filter(p => p.id !== id);
     updateQueueDisplay();
 };
-}
+
 
 function resetStatsOnly() {
     if(!confirm('รีเซ็ตสถิติ?')) return;
@@ -230,36 +231,56 @@ function renderCourtButtons(court, idx) {
         return `<button class="success" style="width:100%;" onclick="startGame(${idx})">เริ่มเกม</button>`;
     } 
     
-// ... (โค้ดส่วนบนเหมือนเดิม) ...
-
-// --- โค้ดใหม่ (ท่อนล่างสุด) ---
+    // --- โค้ดใหม่ (แผงควบคุม 4 ปุ่ม) ---
     
-    // เช็คคิวแรกสุด
-    const waiting = players.filter(p => p.status === 'waiting').sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
-    
-    // เช็คว่ามี Booking รออยู่ไหม (เอาแค่คนแรกสุด)
-    const firstP = waiting.length > 0 ? waiting[0] : null;
-    const bookingGroup = firstP && firstP.bookingId ? players.filter(p => p.bookingId === firstP.bookingId && p.status === 'waiting') : [];
-    
+    // 1. เช็คสถานะคิว ว่ามีความพร้อมสำหรับ Booking ไหม?
+    const waiting = players.filter(p => p.status === 'waiting'&& !p.isResting).sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
+    const head = waiting.length > 0 ? waiting[0] : null;
     const needed = 4 - court.players.length;
-    let buttonsHTML = '';
 
-    // ✨ เงื่อนไข: ถ้ามี Booking รออยู่ และ "จำนวนคนพอดี" กับที่ว่าง -> โชว์ปุ่มสีม่วง
-    if (bookingGroup.length > 0 && bookingGroup.length <= needed) {
-        buttonsHTML += `
-            <button style="background:#9b59b6; color:white; flex:1.5;" onclick="fillCourtSmart(${idx})">
-                🔒 ลงคิวจอง (${bookingGroup.length} คน)
-            </button>
-        `;
-    } else {
-        // ถ้าไม่มี Booking หรือลงไม่ได้ -> โชว์ปุ่มสุ่มปกติ
-        buttonsHTML += `<button class="warning" style="flex:1;" onclick="fillCourtSmart(${idx})">🎲 สุ่ม</button>`;
+    // เช็คเงื่อนไข Booking
+    let isBookingPair = false;
+    let isBookingFour = false;
+    let bookingSize = 0;
+
+    if (head && head.bookingId) {
+        const group = players.filter(p => p.bookingId === head.bookingId && p.status === 'waiting');
+        bookingSize = group.length;
+
+        // ถ้ากลุ่มจอง "ยัดลงที่ว่างได้พอดี" ให้เปิดปุ่มนั้น
+        if (bookingSize <= needed) {
+            if (bookingSize === 2) isBookingPair = true;
+            if (bookingSize === 4) isBookingFour = true;
+        }
     }
 
-    // ปุ่มตามคิว (สีฟ้า) มีเสมอ
-    buttonsHTML += `<button style="background:#3498db; color:white; flex:1;" onclick="fillCourtQueue(${idx})">⏩ ตามคิว</button>`;
+    // สไตล์สำหรับปุ่มที่ Disabled (สีเทา)
+    const disabledStyle = "background:#e0e0e0; color:#a0a0a0; cursor:not-allowed; border:1px solid #ccc;";
+    
+    // สไตล์ปุ่ม Booking (สีม่วง)
+    const activePairStyle = "background:#9b59b6; color:white;";
+    const activeFourStyle = "background:#8e44ad; color:white;";
 
-    return `<div style="display:flex; gap:5px;">${buttonsHTML}</div>`;
+    return `
+        <div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="display:flex; gap:4px;">
+                <button class="warning" style="flex:1;" onclick="fillCourtSmart(${idx})">🎲 สุ่ม</button>
+                <button style="background:#3498db; color:white; flex:1;" onclick="fillCourtQueue(${idx})">⏩ ตามคิว</button>
+            </div>
+            
+            <div style="display:flex; gap:4px;">
+                <button style="flex:1; ${isBookingPair ? activePairStyle : disabledStyle}" 
+                    ${isBookingPair ? `onclick="fillCourtSmart(${idx})"` : 'disabled'}>
+                    👥 จองคู่ ${isBookingPair ? '✅' : ''}
+                </button>
+                
+                <button style="flex:1; ${isBookingFour ? activeFourStyle : disabledStyle}" 
+                    ${isBookingFour ? `onclick="fillCourtSmart(${idx})"` : 'disabled'}>
+                    ⚔️ จอง 4 ${isBookingFour ? '✅' : ''}
+                </button>
+            </div>
+        </div>
+    `;
 }
 
 // --- 🧠 SMART AUTO FILL (V5.1 Wave's Logic) ---
@@ -320,7 +341,7 @@ const fillCourtQueue = (courtIdx) => {
     
     // ดึงคนที่รออยู่ (เรียงตามเวลา)
     const waiting = players
-        .filter(p => p.status === 'waiting')
+        .filter(p => p.status === 'waiting'&& !p.isResting)
         .sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
 
     if (waiting.length === 0) { alert('ไม่มีคนรอคิวครับ'); return; }
@@ -369,7 +390,7 @@ const fillCourtQueue = (courtIdx) => {
 };
 // แก้ไข: เพิ่ม Logic ป้องกันการฉีกกลุ่มจอง (ถ้าคนจองเยอะกว่าที่ว่าง จะไม่ดึง)
 function getSmartDraft(count) {
-    let pool = players.filter(p => p.status === 'waiting');
+    let pool = players.filter(p => p.status === 'waiting' && !p.isResting);
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
 
     let selected = [];
@@ -454,35 +475,6 @@ function getSmartDraft(count) {
     return [];
 }
 
-    // ... (ส่วน Logic สุ่มหาคู่ ปกติ เหมือนเดิม) ...
-    let selected = [];
-    let usedIds = new Set();
-    
-    let captain = pool[0];
-    selected.push(captain);
-    usedIds.add(captain.id);
-
-    while (selected.length < count && selected.length < pool.length) {
-        let nextPlayer = null;
-
-        if (selected.length % 2 !== 0) {
-            let currentSolo = selected[selected.length - 1];
-            nextPlayer = findBestPartnerInfinite(currentSolo, pool, usedIds);
-        } else {
-            nextPlayer = pool.find(p => !usedIds.has(p.id) && !p.bookingId); 
-        }
-
-        if (nextPlayer) {
-            selected.push(nextPlayer);
-            usedIds.add(nextPlayer.id);
-        } else {
-            let fallback = pool.find(p => !usedIds.has(p.id));
-            if (fallback) { selected.push(fallback); usedIds.add(fallback.id); }
-            else break;
-        }
-    }
-    return selected;
-}
 
 function findBestPartnerInfinite(captain, fullPool, usedIds) {
     let best = null; 
@@ -805,7 +797,7 @@ const openBookingModal = (type) => {
     currentBookingType = type;
     // ดึงคนที่ว่างและยังไม่ได้จอง
     const waiting = players
-        .filter(p => p.status === 'waiting' && !p.bookingId)
+        .filter(p => p.status === 'waiting' && !p.bookingId && !p.isResting)
         .sort((a,b) => a.joinedQueueAt - b.joinedQueueAt); // เรียงตามคิว
 
     // สร้างตัวเลือกใน Dropdown
@@ -866,6 +858,7 @@ const confirmBooking = () => {
 
     closeModal('booking-modal'); 
     updateQueueDisplay();
+    renderCourts();
 };
 function updateQueueDisplay() {
     const list = document.getElementById('player-queue');
@@ -876,8 +869,35 @@ function updateQueueDisplay() {
         let badgeClass = 'wait-green'; let badgeText = '<5m';
         const min = (players.indexOf(p) + 1) * (AVG_GAME_DURATION / (courtCount * 2));
         if (min > 10) { badgeClass = 'wait-red'; badgeText = '>10m'; } else if (min >= 5) { badgeClass = 'wait-orange'; badgeText = '5-10m'; }
-        return `<li class="player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}"><div class="player-info"><strong>${p.isFastPass?'🚀 ':''}${p.name}</strong>$${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}<span class="wait-badge ${badgeClass}">${badgeText}</span></div><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
+        return `<li class="player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}"><div class="player-info"><strong>${p.isFastPass?'🚀 ':''}${p.name}</strong>${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}<span class="wait-badge ${badgeClass}">${badgeText}</span></div><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
+        
     }).join('');
+    list.innerHTML = waiting.map(p => {
+        let badgeClass = 'wait-green'; let badgeText = '<5m';
+        const min = (players.indexOf(p) + 1) * (AVG_GAME_DURATION / (courtCount * 2));
+        if (min > 10) { badgeClass = 'wait-red'; badgeText = '>10m'; } else if (min >= 5) { badgeClass = 'wait-orange'; badgeText = '5-10m'; }
+        
+        // ✨ Logic สีสำหรับคนพัก
+        const itemClass = p.isResting ? 'player-item resting' : `player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}`;
+        const opacityStyle = p.isResting ? 'opacity: 0.6; background: #ddd;' : '';
+        const namePrefix = p.isResting ? '💤 ' : (p.isFastPass ? '🚀 ' : '');
+
+        return `
+            <li class="${itemClass}" style="${opacityStyle}">
+                <div class="player-info">
+                    <strong>${namePrefix}${p.name}</strong>
+                    ${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}
+                    ${!p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray; font-weight:bold; margin-left:5px;">(พัก)</small>'}
+                </div>
+                
+                <button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">
+                    ${p.isResting ? 'ตื่น' : '💤'}
+                </button>
+                
+                <button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button>
+            </li>`;
+    }).join('');
+}
 }
 function formatTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
@@ -898,6 +918,18 @@ const cancelBooking = (bId) => {
         }
     });
     updateQueueDisplay();
+};
+
+// ✨ NEW: สลับสถานะ พัก/พร้อม
+const toggleRest = (id) => {
+    const p = players.find(x => x.id === id);
+    if (!p) return;
+    
+    // สลับค่า boolean (ถ้าไม่มีค่านี้มาก่อน ให้ถือว่าเป็น false)
+    p.isResting = !p.isResting;
+    
+    updateQueueDisplay();
+    renderCourts(); // สั่งวาดปุ่มใหม่ด้วย เผื่อคนพักเป็นหัวแถว
 };
 init();
 </script>
