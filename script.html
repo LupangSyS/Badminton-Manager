@@ -24,18 +24,15 @@ const toggleLevel = (id) => {
     updateQueueDisplay(); // อัปเดตหน้าจอทันที
 };
 
-// ฟังก์ชันจัดทีมให้สูสีที่สุด (Auto Balance)
+// ฟังก์ชันจัดทีมให้สูสีที่สุด (Auto Balance V2 - Force Split)
+// ฟังก์ชันจัดทีมให้สูสีที่สุด (Auto Balance V3 - Respect History)
 const autoBalanceTeam = (candidates) => {
     // กฎเหล็ก: ถ้ามีคนจอง (Booking) ติดมาด้วย ห้ามไปสลับคู่เขาเด็ดขาด!
     if (candidates.some(p => p.bookingId) || candidates.length !== 4) {
         return candidates;
     }
 
-    // ความเป็นไปได้ในการจับคู่มี 3 แบบ:
-    // 1. (A,B) vs (C,D) -> [0,1,2,3]
-    // 2. (A,C) vs (B,D) -> [0,2,1,3]
-    // 3. (A,D) vs (B,C) -> [0,3,1,2]
-    
+    // ความเป็นไปได้ในการจับคู่มี 3 แบบ
     const combinations = [
         [0, 1, 2, 3], 
         [0, 2, 1, 3], 
@@ -43,27 +40,38 @@ const autoBalanceTeam = (candidates) => {
     ];
 
     let bestCombo = combinations[0];
-    let minDiff = Infinity;
+    let minScore = Infinity; // คะแนนยิ่งน้อยยิ่งดี (Diff น้อย + ไม่ซ้ำ)
 
-    // วนลูปหาคู่ที่ผลต่างพลังทีมน้อยที่สุด
     combinations.forEach(combo => {
-        // คำนวณพลังทีม 1
-        const t1Score = (LEVEL_WEIGHTS[candidates[combo[0]].level] || 1) + 
-                        (LEVEL_WEIGHTS[candidates[combo[1]].level] || 1);
-        
-        // คำนวณพลังทีม 2
-        const t2Score = (LEVEL_WEIGHTS[candidates[combo[2]].level] || 1) + 
-                        (LEVEL_WEIGHTS[candidates[combo[3]].level] || 1);
-        
+        const p1 = candidates[combo[0]];
+        const p2 = candidates[combo[1]];
+        const p3 = candidates[combo[2]];
+        const p4 = candidates[combo[3]];
+
+        // 1. คำนวณความต่างของพลัง (Level Diff)
+        const t1Score = (LEVEL_WEIGHTS[p1.level || 'BG'] || 1) + (LEVEL_WEIGHTS[p2.level || 'BG'] || 1);
+        const t2Score = (LEVEL_WEIGHTS[p3.level || 'BG'] || 1) + (LEVEL_WEIGHTS[p4.level || 'BG'] || 1);
         const diff = Math.abs(t1Score - t2Score);
 
-        if (diff < minDiff) {
-            minDiff = diff;
+        // 2. ✨ เช็คประวัติคู่ซ้ำ (Penalty)
+        // ถ้าเคยคู่กันมาแล้ว 2 ครั้งขึ้นไป ปรับโทษหนัก (บวกคะแนนเพิ่ม 1000)
+        // ถ้าเคยคู่กัน 1 ครั้ง ปรับโทษเบาๆ (บวก 5) เพื่อเลี่ยงถ้าทำได้
+        const pair1Repeats = getPairCount(p1.id, p2.id);
+        const pair2Repeats = getPairCount(p3.id, p4.id);
+        
+        let penalty = 0;
+        if (pair1Repeats >= 2) penalty += 1000;
+        if (pair2Repeats >= 2) penalty += 1000;
+
+        // คะแนนรวม = ความต่างพลัง + บทลงโทษคู่ซ้ำ
+        const totalScore = diff + penalty;
+
+        if (totalScore < minScore) {
+            minScore = totalScore;
             bestCombo = combo;
         }
     });
 
-    // คืนค่า Array ที่เรียงคนใหม่ตามสูตรที่ดีที่สุด
     return [
         candidates[bestCombo[0]], 
         candidates[bestCombo[1]], 
@@ -72,6 +80,7 @@ const autoBalanceTeam = (candidates) => {
     ];
 };
 
+// ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
 // ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
 const addPlayerToCourt = (court, player) => {
     // หาช่องที่เป็น null หรือ undefined ก่อน
