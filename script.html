@@ -1247,9 +1247,8 @@ init();
 // 📡 BROADCAST SYSTEM (LIVE SYNC)
 // ==========================================
 
-// เช็คว่าเราเป็น Master (คนคุม) หรือ Viewer (คนส่อง)
-const urlParams = new URLSearchParams(window.location.search);
-const isViewer = urlParams.get('mode') === 'viewer';
+// ✅ ของใหม่ (ใช้ตัวแปรที่ส่งมาจาก index.html):
+const isViewer = (typeof APP_MODE !== 'undefined' && APP_MODE === 'viewer');
 let syncInterval = null;
 
 // ถ้าเป็น Viewer ให้ซ่อนปุ่มควบคุม แล้วเริ่มดึงข้อมูล
@@ -1324,8 +1323,8 @@ function restoreState(json) {
 // Modal แจกวาป
 function showShareLinkModal() {
     // สร้าง URL สำหรับคนดู (เอา URL ปัจจุบัน + ?mode=viewer)
-    const currentUrl = window.location.href.split('?')[0];
-    const viewerUrl = currentUrl + '?mode=viewer';
+    const baseUrl = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : window.location.href.split('?')[0];
+    const viewerUrl = baseUrl + '?mode=viewer';
     
     const html = `
         <div style="text-align:center;">

@@ -225,7 +225,10 @@
             </div>
         </div>
     </div>
-
+<script>
+      var APP_MODE = "<?= mode ?>";   // รับค่า mode ('master' หรือ 'viewer')
+      var APP_URL = "<?= appUrl ?>";  // รับค่า URL จริงของเว็บ
+</script>
     <?!= include('script'); ?>
 </body>
 </html>
