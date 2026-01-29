@@ -186,4 +186,32 @@ button.mini-btn { padding: 2px 6px; font-size: 0.75em; margin-left: auto; }
     .courts-area-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 500px) { .courts-area-grid { grid-template-columns: 1fr; } }
+/* Animation ปุ่ม Live */
+.pulse {
+    background-color: #e74c3c !important;
+    color: white !important;
+    animation: pulse-animation 2s infinite;
+}
+@keyframes pulse-animation {
+    0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+}
+
+/* โหมดคนดู (Viewer Mode): ซ่อนปุ่มกดทุกอย่าง */
+body.view-mode button:not(.btn-overlay), /* เก็บปุ่มเปิดสนามไว้ดูเล่นๆ ได้ แต่กดไปก็ไม่มีผล */
+body.view-mode .mini-btn,
+body.view-mode input,
+body.view-mode select,
+body.view-mode #btn-broadcast,
+body.view-mode .modal {
+    display: none !important;
+}
+
+/* เปิดเฉพาะสิ่งที่จำเป็นให้คนดูเห็น */
+body.view-mode #player-queue,
+body.view-mode #courts-container,
+body.view-mode #next-match-panel {
+    pointer-events: none; /* ห้ามจิ้ม */
+}
 </style>  

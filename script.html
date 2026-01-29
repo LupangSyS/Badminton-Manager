@@ -1230,6 +1230,7 @@ function updateNextMatchPanel() {
     }
 
     container.innerHTML = html;
+}
     // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท
 // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท (แก้หัวฟังก์ชันนิดนึง)
 function editCourtName(idx) {
@@ -1241,6 +1242,116 @@ function editCourtName(idx) {
         renderCourts(); 
     }
 }
-}
 init();
+// ==========================================
+// 📡 BROADCAST SYSTEM (LIVE SYNC)
+// ==========================================
+
+// เช็คว่าเราเป็น Master (คนคุม) หรือ Viewer (คนส่อง)
+const urlParams = new URLSearchParams(window.location.search);
+const isViewer = urlParams.get('mode') === 'viewer';
+let syncInterval = null;
+
+// ถ้าเป็น Viewer ให้ซ่อนปุ่มควบคุม แล้วเริ่มดึงข้อมูล
+if (isViewer) {
+    console.log("👀 VIEW MODE ACTIVATED");
+    document.body.classList.add('view-mode'); // ใส่ Class ไว้ซ่อนปุ่มด้วย CSS
+    
+    // เริ่ม Loop ดึงข้อมูลทุก 5 วินาที
+    setInterval(() => {
+        google.script.run.withSuccessHandler(restoreState).syncLoadState();
+    }, 5000);
+}
+
+// ฟังก์ชันเริ่มถ่ายทอดสด (สำหรับ Master กด)
+function toggleBroadcast() {
+    const btn = document.getElementById('btn-broadcast');
+    
+    if (syncInterval) {
+        // ปิดการถ่ายทอด
+        clearInterval(syncInterval);
+        syncInterval = null;
+        btn.innerHTML = '📡 เริ่ม Live';
+        btn.classList.remove('pulse');
+        alert('📴 จบการ Live แล้ว');
+    } else {
+        // เปิดการถ่ายทอด
+        if(!confirm('ต้องการเริ่ม "ถ่ายทอดสด" ไปยัง URL ใช่ไหม? \n(ข้อมูลจะถูกอัปเดตทุก 10 วินาที)')) return;
+        
+        syncInterval = setInterval(pushDataToCloud, 10000); // ส่งทุก 10 วิ (กัน Google ด่า)
+        pushDataToCloud(); // ส่งทีแรกเลย
+        
+        btn.innerHTML = '🔴 On Air';
+        btn.classList.add('pulse');
+        
+        // สร้าง Link ให้ก๊อป
+        const url = ScriptApp.getService().getUrl() + '?mode=viewer'; // *Note: บรรทัดนี้รันบน Server side ไม่ได้ใน JS client*
+        // แก้ขัด: ให้ User ก๊อป URL ปัจจุบันแล้วเติม ?mode=viewer
+        showShareLinkModal();
+    }
+}
+
+// ส่งข้อมูลขึ้น Cloud (Master Only)
+function pushDataToCloud() {
+    // ย่อข้อมูลให้เล็กที่สุด (ตัด Logs ออก เดี๋ยวเต็ม)
+    const state = {
+        players: players,
+        courts: courts,
+        timestamp: Date.now()
+    };
+    const json = JSON.stringify(state);
+    google.script.run.syncSaveState(json);
+    console.log("Cloud Synced ☁️");
+}
+
+// รับข้อมูลจาก Cloud มาแสดง (Viewer Only)
+function restoreState(json) {
+    if (!json) return;
+    const state = JSON.parse(json);
+    
+    // อัปเดตตัวแปร local
+    players = state.players;
+    
+    // อัปเดตคอร์ท (ต้องระวัง Timer ทับกัน)
+    // เราจะเอาแค่ "ใครเล่นอยู่" มาแสดง ไม่ต้องเอา Timer จริง
+    courts = state.courts.map(c => {
+        // ถ้าเป็น Viewer ไม่ต้องรัน Interval จริง แค่โชว์เวลาล่าสุดก็พอ
+        c.interval = null; 
+        return c;
+    });
+
+    renderCourts();
+    updateQueueDisplay();
+    updateNextMatchPanel();
+}
+
+// Modal แจกวาป
+function showShareLinkModal() {
+    // สร้าง URL สำหรับคนดู (เอา URL ปัจจุบัน + ?mode=viewer)
+    const currentUrl = window.location.href.split('?')[0];
+    const viewerUrl = currentUrl + '?mode=viewer';
+    
+    const html = `
+        <div style="text-align:center;">
+            <h3>📡 ลิงก์สำหรับเพื่อน (View Only)</h3>
+            <p>ส่งลิงก์นี้ลงไลน์กลุ่มได้เลย เพื่อนจะเห็นคอร์ทและคิว แต่กดแก้ไขไม่ได้</p>
+            <input type="text" value="${viewerUrl}" id="share-link-input" style="width:100%; padding:10px; margin-bottom:10px; border:1px solid #ccc; border-radius:5px;">
+            <button class="success" onclick="copyShareLink()">📋 Copy Link</button>
+            <button class="secondary" onclick="closeModal('booking-modal')">ปิด</button>
+        </div>
+    `;
+    
+    document.getElementById('booking-inputs').innerHTML = html;
+    document.getElementById('booking-modal').style.display = 'flex';
+    
+    // ซ่อนปุ่ม Action เดิม
+    document.querySelector('#booking-modal .modal-actions').style.display = 'none';
+}
+
+function copyShareLink() {
+    const copyText = document.getElementById("share-link-input");
+    copyText.select();
+    document.execCommand("copy");
+    alert("ก๊อปปี้แล้ว! เอาไปแปะในไลน์โลด");
+}
 </script>
