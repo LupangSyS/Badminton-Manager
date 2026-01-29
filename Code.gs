@@ -7,7 +7,7 @@ function doGet(e) {
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ✨ ต้องมีฟังก์ชันนี้ครับ ไม่งั้นหน้าเว็บขาวจั๊วะ!
+// ✨👇 ฟังก์ชันนี้แหละที่หายไป! ต้องมีนะ ไม่งั้นหน้าขาว! 👇✨
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
