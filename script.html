@@ -71,7 +71,7 @@ const autoBalanceTeam = (candidates) => {
         candidates[bestCombo[3]]
     ];
 };
-// ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
+
 // ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
 const addPlayerToCourt = (court, player) => {
     // หาช่องที่เป็น null หรือ undefined ก่อน
@@ -989,27 +989,6 @@ function updateQueueDisplay() {
             </li>`;
     }).join('');
     
-    updateNextMatchPanel();
-}
-        const waitBadge = !p.isResting 
-            ? `<span class="wait-badge ${badgeClass}" title="รอประมาณ ${estimatedWaitMins} นาที">${badgeText}</span>` 
-            : '<small style="color:gray; font-weight:bold; margin-left:5px;">(พัก)</small>';
-
-        return `
-            <li class="${itemClass}" style="${opacityStyle}">
-                <div class="player-info">
-                    <strong>${namePrefix}${p.name}</strong>
-                    ${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}
-                    ${waitBadge}
-                </div>
-                
-                <button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">
-                    ${p.isResting ? 'ตื่น' : '💤'}
-                </button>
-                
-                <button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button>
-            </li>`;
-    }).join('');
     updateNextMatchPanel();
 }
 
