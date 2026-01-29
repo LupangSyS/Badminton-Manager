@@ -1,7 +1,7 @@
 function doGet() {
   return HtmlService.createTemplateFromFile('index')
       .evaluate()
-      .setTitle('Badminton Manager V7.0')
+      .setTitle('Badminton Manager by Lupang')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 

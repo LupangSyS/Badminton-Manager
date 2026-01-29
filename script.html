@@ -156,17 +156,19 @@ function recordPairing(id1, id2) {
     if (!pairingHistory[key]) pairingHistory[key] = 0;
     pairingHistory[key]++;
 }
-function getPairCount(id1, id2) { return pairingHistory[getPairKey(id1, id2)] || 0;
-// ✨ NEW: ฟังก์ชันเกี่ยวกับคู่แข่ง
+// ✨ แก้ตรงนี้: ใส่ปีกกาปิด } ให้เรียบร้อย
+function getPairCount(id1, id2) { return pairingHistory[getPairKey(id1, id2)] || 0; }
+
+// ✨ ฟังก์ชันเกี่ยวกับคู่แข่ง (ตอนนี้ออกมาอยู่ข้างนอกแล้ว ใช้งานได้ปกติ)
 function recordOpponent(id1, id2) {
     const key = getPairKey(id1, id2);
     if (!opponentHistory[key]) opponentHistory[key] = 0;
     opponentHistory[key]++;
-}}
+}
 
 function getOpponentCount(id1, id2) {
-    return opponentHistory[getPairKey(id1, id2)] || 0; }
-
+    return opponentHistory[getPairKey(id1, id2)] || 0; 
+}
 function addPlayers() {
     const input = document.getElementById('new-players');
     const rawText = input.value.trim();
@@ -278,6 +280,8 @@ function updateCourts(change) {
 
 function renderCourts() {
     const container = document.getElementById('courts-container');
+    
+    // เติมคอร์ทให้ครบตามจำนวน
     if (courts.length < courtCount) {
         for (let i = courts.length; i < courtCount; i++) {
             courts.push({ id: i, players: [], state: 'empty', timer: 0, interval: null, isOpened: false, autoStartTarget: null });
@@ -291,7 +295,9 @@ function renderCourts() {
             });
         }
     }
+    
     container.innerHTML = '';
+    
     courts.forEach((court, index) => {
         let overlayHTML = '';
         if (court.state === 'post_game') {
@@ -308,13 +314,25 @@ function renderCourts() {
                 </div>
             `;
         }
+        
+        // ✨ Logic ชื่อคอร์ท
+        const displayName = court.customName || `#${index + 1}`;
+
         const courtHTML = `
             <div class="court" id="court-${index}">
                 <div class="court-lines"></div>
                 <div class="service-line-top"></div>
                 <div class="service-line-bottom"></div>
-                <div class="court-header"><span>#${index + 1}</span><small>${getRuleLabel()}</small></div>
+                
+                <div class="court-header" style="position: relative; z-index: 10;">
+                    <span onclick="editCourtName(${index})" style="cursor:pointer; display:flex; align-items:center; gap:5px;" title="จิ้มเพื่อเปลี่ยนชื่อ">
+                        ${displayName} <span style="font-size:0.8em; opacity:0.6;">✏️</span>
+                    </span>
+                    <small>${getRuleLabel()}</small>
+                </div>
+                
                 ${overlayHTML}
+                
                 <div class="court-players">
                     <div class="team team-pink">${renderPlayerOnCourt(court.players[0], index, 0)}${renderPlayerOnCourt(court.players[1], index, 1)}</div>
                     <div class="team team-blue">${renderPlayerOnCourt(court.players[2], index, 2)}${renderPlayerOnCourt(court.players[3], index, 3)}</div>
@@ -1212,6 +1230,17 @@ function updateNextMatchPanel() {
     }
 
     container.innerHTML = html;
+    // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท
+// ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท (แก้หัวฟังก์ชันนิดนึง)
+function editCourtName(idx) {
+    const currentName = courts[idx].customName || `#${idx + 1}`;
+    const newName = prompt(`ตั้งชื่อคอร์ทที่ ${idx + 1} ใหม่ (เดิม: ${currentName})`, currentName);
+    
+    if (newName && newName.trim() !== "") {
+        courts[idx].customName = newName.trim();
+        renderCourts(); 
+    }
+}
 }
 init();
 </script>
