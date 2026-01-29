@@ -24,15 +24,13 @@ const toggleLevel = (id) => {
     updateQueueDisplay(); // อัปเดตหน้าจอทันที
 };
 
-// ฟังก์ชันจัดทีมให้สูสีที่สุด (Auto Balance V2 - Force Split)
-// ฟังก์ชันจัดทีมให้สูสีที่สุด (Auto Balance V3 - Respect History)
+// ฟังก์ชันจัดทีมให้สูสีที่สุด (Auto Balance V6 - Equal Penalty)
 const autoBalanceTeam = (candidates) => {
     // กฎเหล็ก: ถ้ามีคนจอง (Booking) ติดมาด้วย ห้ามไปสลับคู่เขาเด็ดขาด!
     if (candidates.some(p => p.bookingId) || candidates.length !== 4) {
         return candidates;
     }
 
-    // ความเป็นไปได้ในการจับคู่มี 3 แบบ
     const combinations = [
         [0, 1, 2, 3], 
         [0, 2, 1, 3], 
@@ -40,7 +38,7 @@ const autoBalanceTeam = (candidates) => {
     ];
 
     let bestCombo = combinations[0];
-    let minScore = Infinity; // คะแนนยิ่งน้อยยิ่งดี (Diff น้อย + ไม่ซ้ำ)
+    let minScore = Infinity; 
 
     combinations.forEach(combo => {
         const p1 = candidates[combo[0]];
@@ -48,22 +46,38 @@ const autoBalanceTeam = (candidates) => {
         const p3 = candidates[combo[2]];
         const p4 = candidates[combo[3]];
 
-        // 1. คำนวณความต่างของพลัง (Level Diff)
+        // 1. ความต่างพลัง (Diff)
         const t1Score = (LEVEL_WEIGHTS[p1.level || 'BG'] || 1) + (LEVEL_WEIGHTS[p2.level || 'BG'] || 1);
         const t2Score = (LEVEL_WEIGHTS[p3.level || 'BG'] || 1) + (LEVEL_WEIGHTS[p4.level || 'BG'] || 1);
         const diff = Math.abs(t1Score - t2Score);
 
-        // 2. ✨ เช็คประวัติคู่ซ้ำ (Penalty)
-        // ถ้าเคยคู่กันมาแล้ว 2 ครั้งขึ้นไป ปรับโทษหนัก (บวกคะแนนเพิ่ม 1000)
-        // ถ้าเคยคู่กัน 1 ครั้ง ปรับโทษเบาๆ (บวก 5) เพื่อเลี่ยงถ้าทำได้
+        let penalty = 0;
+
+        // 🚨 Rule 1: ห้ามห่างชั้นเกิน 2 แต้ม (ปรับแพ้ 1 ล้าน)
+        // เช่น P+P (8) vs BG+BG (2) = ต่าง 6 -> โดน 1,000,000
+        if (diff > 2) {
+            penalty += 1000000; 
+        }
+
+        // 🚨 Rule 2: เช็คคู่หูซ้ำ (Partner Repeat) - ปรับหนักเท่ากัน! (1 ล้าน)
+        // ตามคำขอ: "ไม่เอาคู่หูเดิม โทษหนักพอๆ กับ มือหนัก"
         const pair1Repeats = getPairCount(p1.id, p2.id);
         const pair2Repeats = getPairCount(p3.id, p4.id);
         
-        let penalty = 0;
-        if (pair1Repeats >= 2) penalty += 1000;
-        if (pair2Repeats >= 2) penalty += 1000;
+        // ถ้าเคยคู่กันมาแล้วแม้แต่ครั้งเดียว... โดนไป 1 ล้านเท่ากัน!
+        if (pair1Repeats >= 1) penalty += 1000000; 
+        if (pair2Repeats >= 1) penalty += 1000000;
 
-        // คะแนนรวม = ความต่างพลัง + บทลงโทษคู่ซ้ำ
+        // 🚨 Rule 3: เช็คศัตรูซ้ำ (Opponent Repeat) - ปรับเบา (300)
+        // อันนี้ของแถม เอาไว้ช่วยเกลี่ยให้เจอคนหลากหลายขึ้น (ถ้าเลือกได้)
+        let oppRepeats = 0;
+        oppRepeats += getOpponentCount(p1.id, p3.id);
+        oppRepeats += getOpponentCount(p1.id, p4.id);
+        oppRepeats += getOpponentCount(p2.id, p3.id);
+        oppRepeats += getOpponentCount(p2.id, p4.id);
+        penalty += (oppRepeats * 300);
+
+        // คะแนนรวม = ความต่างพลัง + บทลงโทษ
         const totalScore = diff + penalty;
 
         if (totalScore < minScore) {
@@ -80,7 +94,7 @@ const autoBalanceTeam = (candidates) => {
     ];
 };
 
-// ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
+
 // ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
 const addPlayerToCourt = (court, player) => {
     // หาช่องที่เป็น null หรือ undefined ก่อน
@@ -105,7 +119,8 @@ let courts = [];
 let courtCount = 2;
 let bookingCounter = 0;
 let activeGameResolveCourtId = null;
-let pairingHistory = {}; 
+let pairingHistory = {};
+let opponentHistory = {}; // ✨ NEW: ตัวแปรจำหน้าศัตรู 
 let matchLogs = [];
 
 // --- Configuration (Frozen Logic V4.0) ---
@@ -141,7 +156,16 @@ function recordPairing(id1, id2) {
     if (!pairingHistory[key]) pairingHistory[key] = 0;
     pairingHistory[key]++;
 }
-function getPairCount(id1, id2) { return pairingHistory[getPairKey(id1, id2)] || 0; }
+function getPairCount(id1, id2) { return pairingHistory[getPairKey(id1, id2)] || 0;
+// ✨ NEW: ฟังก์ชันเกี่ยวกับคู่แข่ง
+function recordOpponent(id1, id2) {
+    const key = getPairKey(id1, id2);
+    if (!opponentHistory[key]) opponentHistory[key] = 0;
+    opponentHistory[key]++;
+}}
+
+function getOpponentCount(id1, id2) {
+    return opponentHistory[getPairKey(id1, id2)] || 0; }
 
 function addPlayers() {
     const input = document.getElementById('new-players');
@@ -216,6 +240,7 @@ function resetStatsOnly() {
         p.status = 'waiting'; p.joinedQueueAt = Date.now(); p.bookingId = null; p.isFastPass = false;
     });
     pairingHistory = {};
+    opponentHistory = {}; // ✨ NEW: ล้างประวัติศัตรู
     matchLogs = [];
     renderMatchLog();
     resetCourtsState();
@@ -226,6 +251,7 @@ function resetAll() {
     if(!confirm('ล้างข้อมูลทั้งหมด?')) return;
     players = [];
     pairingHistory = {};
+    opponentHistory = {}; // ✨ NEW: ล้างประวัติศัตรู
     matchLogs = [];
     renderMatchLog();
     resetCourtsState();
@@ -491,6 +517,7 @@ const fillCourtQueue = (courtIdx) => {
 };
 // แก้ไข: เพิ่ม Logic ป้องกันการฉีกกลุ่มจอง (ถ้าคนจองเยอะกว่าที่ว่าง จะไม่ดึง)
 // แก้ไข: เพิ่ม excludeIds (Set) เพื่อให้ข้ามคนที่ถูกเลือกไปแล้วใน Simulation ได้
+// แก้ไข: getSmartDraft ให้ฉลาดขึ้นด้วย Auto Balance
 function getSmartDraft(count, excludeIds = new Set()) {
     // กรองคน: รออยู่ + ไม่พัก + ไม่อยู่ในรายชื่อที่ต้องข้าม (excludeIds)
     let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
@@ -508,6 +535,10 @@ function getSmartDraft(count, excludeIds = new Set()) {
         
         // ถ้าได้ครบตามจำนวน -> ส่งทีมนี้กลับไปเลย
         if (team.length === count) {
+            // ✨ NEW: ถ้าครบ 4 คน ให้เรียก Auto Balance จัดสมดุลก่อนส่งกลับ
+            if (count === 4) {
+                return autoBalanceTeam(team);
+            }
             return team;
         }
     }
@@ -581,9 +612,25 @@ function findBestPartnerInfinite(captain, fullPool, usedIds) {
 }
 
 function startGame(courtIdx) {
-    const court = courts[courtIdx]; court.state = 'playing'; court.timer = 0; court.autoStartTarget = null; 
+    const court = courts[courtIdx]; 
+    court.state = 'playing'; 
+    court.timer = 0; 
+    court.autoStartTarget = null; 
+    
+    // 1. บันทึกคู่หู (Partner) - เหมือนเดิม
     if(court.players[0] && court.players[1]) recordPairing(court.players[0].id, court.players[1].id);
     if(court.players[2] && court.players[3]) recordPairing(court.players[2].id, court.players[3].id);
+
+    // 2. ✨ NEW: บันทึกคู่แข่ง (Opponent) - จดให้ครบทุกคน
+    // ทีม 1 (0,1) vs ทีม 2 (2,3)
+    const p0 = court.players[0]; const p1 = court.players[1];
+    const p2 = court.players[2]; const p3 = court.players[3];
+
+    if (p0 && p2) recordOpponent(p0.id, p2.id);
+    if (p0 && p3) recordOpponent(p0.id, p3.id);
+    if (p1 && p2) recordOpponent(p1.id, p2.id);
+    if (p1 && p3) recordOpponent(p1.id, p3.id);
+
     court.interval = setInterval(() => { court.timer++; document.getElementById(`timer-${courtIdx}`).innerText = formatTime(court.timer); }, 1000);
     renderCourts();
 }
