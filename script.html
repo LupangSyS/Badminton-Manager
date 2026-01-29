@@ -1268,25 +1268,21 @@ function toggleBroadcast() {
     const btn = document.getElementById('btn-broadcast');
     
     if (syncInterval) {
-        // ปิดการถ่ายทอด
         clearInterval(syncInterval);
         syncInterval = null;
         btn.innerHTML = '📡 เริ่ม Live';
         btn.classList.remove('pulse');
         alert('📴 จบการ Live แล้ว');
     } else {
-        // เปิดการถ่ายทอด
         if(!confirm('ต้องการเริ่ม "ถ่ายทอดสด" ไปยัง URL ใช่ไหม? \n(ข้อมูลจะถูกอัปเดตทุก 10 วินาที)')) return;
         
-        syncInterval = setInterval(pushDataToCloud, 10000); // ส่งทุก 10 วิ (กัน Google ด่า)
-        pushDataToCloud(); // ส่งทีแรกเลย
+        syncInterval = setInterval(pushDataToCloud, 10000); 
+        pushDataToCloud(); 
         
         btn.innerHTML = '🔴 On Air';
         btn.classList.add('pulse');
         
-        // สร้าง Link ให้ก๊อป
-        const url = ScriptApp.getService().getUrl() + '?mode=viewer'; // *Note: บรรทัดนี้รันบน Server side ไม่ได้ใน JS client*
-        // แก้ขัด: ให้ User ก๊อป URL ปัจจุบันแล้วเติม ?mode=viewer
+        // เรียก Modal เลย ไม่ต้องประกาศตัวแปร url ตรงนี้แล้ว
         showShareLinkModal();
     }
 }
