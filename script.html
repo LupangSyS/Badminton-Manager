@@ -72,16 +72,11 @@ const autoBalanceTeam = (candidates) => {
     ];
 };
 // ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
+// ✨ NEW: ฟังก์ชันยัดคนลงช่องว่างแรกที่เจอ (แทนการ push)
 const addPlayerToCourt = (court, player) => {
     // หาช่องที่เป็น null หรือ undefined ก่อน
     let emptyIdx = court.players.findIndex(p => p === null || p === undefined);
-    players.push({
-            id: Date.now() + Math.random(),
-            name: cleanName,
-            level: 'BG', // ✨ NEW: เด็กใหม่ทุกคนเริ่มที่ Beginner
-            gamesPlayed: 0,
-            wins: 0,
-            status: 'waiting',
+    
     if (emptyIdx !== -1) {
         // ถ้าเจอหลุม ให้เสียบลงหลุม
         court.players[emptyIdx] = player;
@@ -94,6 +89,7 @@ const addPlayerToCourt = (court, player) => {
         }
     }
 };
+
 // --- Data ---
 let players = []; 
 let courts = [];  
@@ -157,6 +153,7 @@ function addPlayers() {
         players.push({
             id: Date.now() + Math.random(),
             name: cleanName,
+            level: 'BG', // ✨
             gamesPlayed: 0,
             wins: 0,
             status: 'waiting',
@@ -934,109 +931,65 @@ function updateQueueDisplay() {
     waiting.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
     document.getElementById('queue-count').innerText = waiting.length;
 
-    // --- 🧮 LOGIC คำนวณเวลาแบบ Real-time (ฉลาดขึ้น) ---
+    // --- 🧮 LOGIC คำนวณเวลาแบบ Real-time ---
     const rule = document.getElementById('game-rule').value;
     const playersOutPerGame = (rule === 'winner_stay') ? 2 : 4;
-    const avgGameTime = 15; // นาที
-
-    // 1. สร้าง "Slot เวลาว่าง" จากสภาพจริงของคอร์ท
-    let availableSlots = [];
+    const avgGameTime = 15; 
     
+    let availableSlots = [];
     courts.forEach(c => {
         let remainingMins = 0;
-        
         if (c.state === 'playing') {
-            // ถ้าเล่นอยู่: เอาเวลามาตรฐาน - เวลาที่เล่นไปแล้ว
             const playedMins = Math.floor(c.timer / 60);
             remainingMins = Math.max(0, avgGameTime - playedMins);
         } 
-        // ถ้าว่าง/จบเกมแล้ว (empty/post_game): remainingMins = 0 (พร้อมเสียบเลย)
-
-        // คอร์ทนี้รับคนได้กี่คน? ยัดเวลาว่างลงไปตามจำนวนที่นั่ง
-        for (let i = 0; i < playersOutPerGame; i++) {
-            availableSlots.push(remainingMins);
-        }
+        for (let i = 0; i < playersOutPerGame; i++) availableSlots.push(remainingMins);
     });
-
-    // 2. เรียงลำดับ Slot จาก "ว่างเร็วสุด" -> "ว่างช้าสุด"
     availableSlots.sort((a, b) => a - b);
-    
-    const totalCapacity = availableSlots.length; // ความจุรวมต่อรอบ (เช่น 8 คน)
+    const totalCapacity = availableSlots.length;
 
     list.innerHTML = waiting.map((p, index) => {
-        // --- คำนวณเวลารอของคนนี้ ---
-        // ดูว่าคนนี้ตกที่ Slot ไหนของรอบ (Batch)
         const batchIndex = index % totalCapacity;
-        
-        // ดูว่าต้องรอกี่รอบ (Round)
         const rounds = Math.floor(index / totalCapacity);
-
-        // เวลารอ = เวลาว่างของ Slot นั้น + (จำนวนรอบ x 15 นาที)
-        // เช่น คิวที่ 1 ได้ Slot ของคอร์ทที่เหลือ 13 นาที -> รอ 13 นาที
-        // คิวที่ 9 (รอบถัดไป) ได้ Slot เดิม -> รอ 13 + 15 = 28 นาที
-        // *กันเหนียว: ถ้า index เกิน slot (กรณีเพิ่งเพิ่มคอร์ท) ให้ใช้สูตรบ้านๆ*
         const baseWait = availableSlots[batchIndex] !== undefined ? availableSlots[batchIndex] : 0;
         const estimatedWaitMins = baseWait + (rounds * avgGameTime);
         
-        // --- ตัดเกรดสี ---
-        let badgeClass = 'wait-green'; 
-        let badgeText = `< ${estimatedWaitMins}m`; 
-        
+        let badgeClass = 'wait-green'; let badgeText = `< ${estimatedWaitMins}m`; 
         if (estimatedWaitMins > 20) { badgeClass = 'wait-red'; badgeText = `~${estimatedWaitMins}m`; }
         else if (estimatedWaitMins > 10) { badgeClass = 'wait-orange'; badgeText = `~${estimatedWaitMins}m`; }
-        else if (estimatedWaitMins > 0) { badgeText = `~${estimatedWaitMins}m`; } // 1-9 นาที
-        else { badgeText = 'Now!'; badgeClass = 'wait-green'; } // 0 นาที (เสียบได้เลย)
+        else if (estimatedWaitMins > 0) { badgeText = `~${estimatedWaitMins}m`; } 
+        else { badgeText = 'Now!'; badgeClass = 'wait-green'; } 
         
-        // Logic สีสำหรับคนพัก (เหมือนเดิม)
         const itemClass = p.isResting ? 'player-item resting' : `player-item ${p.bookingId ? 'booked' : ''} ${p.isFastPass ? 'fastpass' : ''}`;
         const opacityStyle = p.isResting ? 'opacity: 0.6; background: #ddd;' : '';
         const namePrefix = p.isResting ? '💤 ' : (p.isFastPass ? '🚀 ' : '');
-// ในฟังก์ชัน updateQueueDisplay() ... Map loop ...
 
-        const namePrefix = p.isResting ? '💤 ' : (p.isFastPass ? '🚀 ' : '');
-        
-        // ✨ NEW: Badge เลเวล (กดเพื่อเปลี่ยน)
-        const lv = p.level || 'BG'; // ถ้าไม่มีค่าให้เป็น BG
+        // ✨ Level Badge
+        const lv = p.level || 'BG';
         const lvColor = LEVEL_COLORS[lv] || '#bdbdbd';
-        
-        // สร้างปุ่ม Badge
         const levelBadge = `<span onclick="toggleLevel(${p.id})" style="cursor:pointer; background:${lvColor}; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-right:5px; font-weight:bold; border:1px solid rgba(0,0,0,0.1); box-shadow: 0 1px 2px rgba(0,0,0,0.2);" title="กดเพื่อเปลี่ยนระดับ">${lv}</span>`;
+
+        const waitBadge = !p.isResting 
+            ? `<span class="wait-badge ${badgeClass}" title="รอประมาณ ${estimatedWaitMins} นาที">${badgeText}</span>` 
+            : '<small style="color:gray; font-weight:bold; margin-left:5px;">(พัก)</small>';
 
         return `
             <li class="${itemClass}" style="${opacityStyle}">
                 <div class="player-info">
-                    ${!p.isResting ? levelBadge : ''} <strong>${namePrefix}${p.name}</strong>
-                    ```
-
----
-
-### 4. 🧠 แก้ฟังก์ชัน `getSmartDraft` (ฝัง Auto Balance)
-
-หาฟังก์ชัน `getSmartDraft` แล้วแทรก `autoBalanceTeam` ก่อนส่งค่ากลับ (Return) ครับ
-
-```javascript
-// แก้ไข: getSmartDraft ให้ฉลาดขึ้นด้วย Auto Balance
-function getSmartDraft(count, excludeIds = new Set()) {
-    // ... (ส่วนกรองคนและ loop เหมือนเดิม) ...
-    // ...
+                    ${!p.isResting ? levelBadge : ''}
+                    <strong>${namePrefix}${p.name}</strong>
+                    ${p.bookingId ? `<small style="cursor:pointer; font-size:1.2em;" onclick="cancelBooking('${p.bookingId}')" title="❌ ยกเลิกการจอง">🔒</small>` : ''}
+                    ${waitBadge}
+                </div>
+                
+                <button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">
+                    ${p.isResting ? 'ตื่น' : '💤'}
+                </button>
+                <button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button>
+            </li>`;
+    }).join('');
     
-    // วนลูปให้แต่ละคนลองเป็นกัปตันทีม
-    for (let i = 0; i < pool.length; i++) {
-        let captain = pool[i];
-        
-        let team = tryBuildTeam(captain, pool, count); 
-        
-        // ถ้าได้ครบตามจำนวนที่ต้องการ
-        if (team.length === count) {
-            // ✨ NEW: ถ้าครบ 4 คน ให้เรียก Auto Balance จัดสมดุลก่อนส่งกลับ
-            if (count === 4) {
-                return autoBalanceTeam(team);
-            }
-            return team;
-        }
-    }
-    
-    return [];
+    updateNextMatchPanel();
 }
         const waitBadge = !p.isResting 
             ? `<span class="wait-badge ${badgeClass}" title="รอประมาณ ${estimatedWaitMins} นาที">${badgeText}</span>` 
