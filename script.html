@@ -40,8 +40,17 @@ function loadData() {
         
         // Restore Courts
         if (data.courts) {
-            courts = data.courts.map(c => {
-                c.interval = null; // ต้องเริ่ม Timer ใหม่เอง
+            courts = data.courts.map((c, index) => { // ✨ เพิ่ม index
+                c.interval = null; 
+                
+                // ⏰ ปลุกนาฬิกา: ถ้าสถานะคือ "เล่นอยู่" ให้สั่งเดินเวลาต่อทันที!
+                if (c.state === 'playing') {
+                    c.interval = setInterval(() => { 
+                        c.timer++; 
+                        const el = document.getElementById(`timer-${index}`);
+                        if(el) el.innerText = formatTime(c.timer); 
+                    }, 1000);
+                }
                 return c;
             });
         }
