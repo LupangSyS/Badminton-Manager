@@ -1,4 +1,63 @@
 <script>
+  // --- Persistence & State Management ---
+const STORAGE_KEY = 'BADMINTON_MANAGER_V7_DATA';
+
+// ฟังก์ชันเช็คว่ามี Modal เปิดอยู่ไหม (เพื่อป้องกัน UI Freeze)
+function isModalOpen() {
+    const booking = document.getElementById('booking-modal');
+    const winner = document.getElementById('winner-modal');
+    return (booking && booking.style.display === 'flex') || (winner && winner.style.display === 'flex');
+}
+
+// บันทึกข้อมูลลงเครื่อง
+function saveData() {
+    const data = {
+        players,
+        courts: courts.map(c => ({...c, interval: null})), // ไม่บันทึก interval object
+        courtCount,
+        pairingHistory,
+        opponentHistory,
+        matchLogs,
+        bookingCounter,
+        gameRule: document.getElementById('game-rule').value
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+// โหลดข้อมูลกลับมา
+function loadData() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+
+    try {
+        const data = JSON.parse(raw);
+        players = data.players || [];
+        courtCount = data.courtCount || 2;
+        pairingHistory = data.pairingHistory || {};
+        opponentHistory = data.opponentHistory || {};
+        matchLogs = data.matchLogs || [];
+        bookingCounter = data.bookingCounter || 0;
+        
+        // Restore Courts
+        if (data.courts) {
+            courts = data.courts.map(c => {
+                c.interval = null; // ต้องเริ่ม Timer ใหม่เอง
+                return c;
+            });
+        }
+        
+        // Restore Rule
+        if (data.gameRule) {
+            const ruleSelect = document.getElementById('game-rule');
+            if(ruleSelect) ruleSelect.value = data.gameRule;
+        }
+
+        return true;
+    } catch (e) {
+        console.error("Load Data Error:", e);
+        return false;
+    }
+}
   // ✨ NEW: ฟังก์ชันช่วยนับจำนวนคนจริงๆ (ไม่นับช่องว่าง)
 const countRealPlayers = (court) => {
     return court.players.filter(p => p !== null && p !== undefined).length;
@@ -133,7 +192,35 @@ function init() {
     updateQueueDisplay(); // ในนี้มี updateNextMatchPanel แล้ว ก็จบเลย
     setInterval(autoFillCourts, 1000);
     setInterval(updateQueueDisplay, 60000); 
-    updateCustomHoursInputs(); 
+    updateCustomHoursInputs();
+    // พยายามโหลดข้อมูลเก่าก่อน
+    if (loadData()) {
+        console.log("📂 Loaded data from LocalStorage");
+        // ถ้ามีข้อมูลคอร์ทที่เล่นค้างอยู่ ต้องสั่งเดินเวลาต่อ (แบบคร่าวๆ) หรือ Reset Timer ก็ได้
+        // ในที่นี้จะ Render เลย
+    }
+
+    renderCourts();
+    updateQueueDisplay();
+    
+    // Auto Save Loop (กันเหนียวทุก 5 วิ)
+    setInterval(saveData, 5000);
+
+    // Auto Refresh Logic
+    setInterval(() => {
+        // ✨ FIX UI FREEZE: ถ้าเปิด Modal อยู่ ห้าม Auto Fill/Render
+        if (!isModalOpen()) {
+            autoFillCourts();
+        }
+    }, 1000);
+
+    setInterval(() => {
+        if (!isModalOpen()) {
+            updateQueueDisplay();
+        }
+    }, 60000); 
+    
+    updateCustomHoursInputs();
 }
 
 // --- VIEW SWITCHING ---
@@ -202,6 +289,7 @@ function addPlayers() {
     });
     input.value = '';
     updateQueueDisplay();
+    saveData();
 }
 
 const removePlayer = (id) => {
@@ -232,6 +320,7 @@ const removePlayer = (id) => {
     // ลบคนออกจากอาเรย์
     players = players.filter(p => p.id !== id);
     updateQueueDisplay();
+    saveData();
 };
 
 
@@ -250,13 +339,24 @@ function resetStatsOnly() {
 }
 
 function resetAll() {
-    if(!confirm('ล้างข้อมูลทั้งหมด?')) return;
+    if(!confirm('⚠️ คุณต้องการ "ล้างข้อมูลทั้งหมด" ใช่ไหม?\n(ผู้เล่น, สถิติ, ประวัติ จะหายเกลี้ยง!)')) return;
+    if(!confirm('⚠️ ยืนยันครั้งที่ 2: ข้อมูลจะกู้คืนไม่ได้นะ เอาจริงดิ?')) return;
+
     players = [];
     pairingHistory = {};
-    opponentHistory = {}; // ✨ NEW: ล้างประวัติศัตรู
+    opponentHistory = {};
     matchLogs = [];
+    courts.forEach(c => {
+        clearInterval(c.interval);
+        c.players = []; 
+        c.state = 'empty'; 
+        c.timer = 0;
+    });
+    
+    localStorage.removeItem(STORAGE_KEY); // ✨ ล้าง LocalStorage
+    
     renderMatchLog();
-    resetCourtsState();
+    renderCourts();
     updateQueueDisplay();
 }
 
@@ -651,6 +751,7 @@ function startGame(courtIdx) {
 
     court.interval = setInterval(() => { court.timer++; document.getElementById(`timer-${courtIdx}`).innerText = formatTime(court.timer); }, 1000);
     renderCourts();
+    saveData();
 }
 
 function stopGame(courtIdx) {
@@ -731,6 +832,7 @@ function resolveGame(winningTeamIdx) {
     }
     court.timer = 0; 
     renderCourts();
+    saveData();
 }
 
 function sendToQueue(playerId) { const pl = players.find(x => x.id === playerId); if(pl) { pl.status = 'waiting'; pl.joinedQueueAt = Date.now(); pl.bookingId = null; pl.bookingTeam = null; pl.sessionGames = 0; } }
@@ -998,6 +1100,7 @@ const confirmBooking = () => {
     closeModal('booking-modal'); 
     updateQueueDisplay();
     renderCourts();
+    saveData();
 };
 function updateQueueDisplay() {
     const list = document.getElementById('player-queue');
@@ -1085,6 +1188,7 @@ const cancelBooking = (bId) => {
         }
     });
     updateQueueDisplay();
+    saveData();
 };
 
 // ✨ NEW: สลับสถานะ พัก/พร้อม
@@ -1254,9 +1358,12 @@ let syncInterval = null;
 // ถ้าเป็น Viewer ให้ซ่อนปุ่มควบคุม แล้วเริ่มดึงข้อมูล
 if (isViewer) {
     console.log("👀 VIEW MODE ACTIVATED");
-    document.body.classList.add('view-mode'); // ใส่ Class ไว้ซ่อนปุ่มด้วย CSS
+    document.body.classList.add('view-mode'); 
     
-    // เริ่ม Loop ดึงข้อมูลทุก 15 วินาที
+    // ✨ UPDATE: สั่งดึงข้อมูลครั้งแรก "ทันที" ที่เปิดหน้าเว็บ (ไม่ต้องรอ 15 วิ)
+    google.script.run.withSuccessHandler(restoreState).syncLoadState(); 
+    
+    // เริ่ม Loop ดึงข้อมูลทุก 15 วินาที (เพื่อประหยัดโควต้า)
     setInterval(() => {
         google.script.run.withSuccessHandler(restoreState).syncLoadState();
     }, 15000);
@@ -1287,11 +1394,14 @@ function toggleBroadcast() {
 }
 
 // ส่งข้อมูลขึ้น Cloud (Master Only)
+// ส่งข้อมูลขึ้น Cloud (Master Only)
 function pushDataToCloud() {
     // ย่อข้อมูลให้เล็กที่สุด (ตัด Logs ออก เดี๋ยวเต็ม)
     const state = {
         players: players,
         courts: courts,
+        courtCount: courtCount, // ✨ ส่งจำนวนคอร์ทไปด้วย
+        gameRule: document.getElementById('game-rule').value, // ✨ ส่งกติกาเกมไปด้วย
         timestamp: Date.now()
     };
     const json = JSON.stringify(state);
@@ -1300,17 +1410,32 @@ function pushDataToCloud() {
 }
 
 // รับข้อมูลจาก Cloud มาแสดง (Viewer Only)
+// รับข้อมูลจาก Cloud มาแสดง (Viewer Only)
 function restoreState(json) {
+    // ✨ FIX UI FREEZE: ถ้า Viewer กำลังกด Modal (เช่น ดูประวัติ หรือ setting) อย่าเพิ่ง Render ทับ
+    if (isModalOpen()) return; 
+
+    if (!json) return;
+    const state = JSON.parse(json);
     if (!json) return;
     const state = JSON.parse(json);
     
-    // อัปเดตตัวแปร local
     players = state.players;
     
-    // อัปเดตคอร์ท (ต้องระวัง Timer ทับกัน)
-    // เราจะเอาแค่ "ใครเล่นอยู่" มาแสดง ไม่ต้องเอา Timer จริง
+    // ✨ Sync settings: อัปเดตจำนวนคอร์ทและกติกา
+    if (state.courtCount) {
+        courtCount = state.courtCount;
+        // อัปเดตตัวเลขใน Input เผื่อไว้ (แม้จะซ่อนอยู่)
+        const calcInput = document.getElementById('calc-court-count');
+        if (calcInput) calcInput.value = courtCount;
+    }
+    if (state.gameRule) {
+        const ruleSelect = document.getElementById('game-rule');
+        if (ruleSelect) ruleSelect.value = state.gameRule;
+    }
+    
+    // อัปเดตคอร์ท
     courts = state.courts.map(c => {
-        // ถ้าเป็น Viewer ไม่ต้องรัน Interval จริง แค่โชว์เวลาล่าสุดก็พอ
         c.interval = null; 
         return c;
     });

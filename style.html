@@ -214,4 +214,127 @@ body.view-mode #courts-container,
 body.view-mode #next-match-panel {
     pointer-events: none; /* ห้ามจิ้ม */
 }
+/* =========================================
+   📺 CLEAN VIEWER MODE (เฉพาะคนดู)
+   ========================================= */
+body.view-mode {
+    background-color: #f4f6f9;
+    padding: 10px;
+}
+
+/* 1. ซ่อนส่วนที่ไม่จำเป็น (Dashboard, History, Controls) */
+body.view-mode .stats-column,             /* ❌ ซ่อนแดชบอร์ด (ตารางสถิติ) */
+body.view-mode .bottom-history-section,   /* ❌ ซ่อนประวัติแมตช์ */
+body.view-mode .nav-bar,                  /* ❌ ซ่อนปุ่มเปลี่ยนหน้า */
+body.view-mode #btn-broadcast,            /* ❌ ซ่อนปุ่ม Live */
+body.view-mode .control-panel,            /* ❌ ซ่อนแผงควบคุม */
+body.view-mode h1,                        /* ❌ ซ่อนหัวข้อ */
+body.view-mode #queue-count,
+body.view-mode #player-queue,             /* ❌ ซ่อนรายชื่อคิว */
+body.view-mode .control-sidebar-container h3, 
+body.view-mode .control-sidebar-container h4 {
+    display: none !important;
+}
+
+/* 2. ✅ เปิดกล่องแม่ (Parent) เอาไว้ก่อน (ห้ามซ่อนบรรทัดนี้ ไม่งั้น Next Match หาย) */
+body.view-mode .bottom-data-section {
+    display: flex !important; 
+    flex-direction: column; /* เรียงแนวตั้ง */
+    width: 100%;
+}
+
+/* 3. 📢 จัด Next Match ให้เด่นๆ */
+body.view-mode .control-sidebar-container {
+    order: -1; /* ย้ายขึ้นบนสุด */
+    width: 100%;
+    flex: none;
+    background: transparent !important; /* โปร่งใส */
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0;
+}
+
+body.view-mode #next-match-panel {
+    display: block !important;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ปรับ Next Match List ให้เรียงแนวนอนสวยๆ ในมือถือ */
+body.view-mode #next-match-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+}
+
+/* 4. 🏸 จัดสนามให้ใหญ่เต็มตา */
+body.view-mode #courts-container {
+    order: 2; /* อยู่ต่อจาก Next Match */
+    margin-top: 10px;
+}
+
+body.view-mode .courts-area-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important; 
+    gap: 15px;
+}
+
+/* ปรับแต่งการ์ดสนามสำหรับคนดู */
+body.view-mode .court {
+    min-height: 250px;
+    border-radius: 16px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+    border: none; /* เอาขอบเขียวออกให้ดูคลีนๆ */
+}
+body.view-mode .court-header {
+    background: #2c3e50;
+    color: white;
+    border-radius: 16px 16px 0 0;
+    border: none;
+}
+/* --- IPAD & RESPONSIVE FIXES --- */
+
+/* 1. ปรับ Layout หลักให้ไหลลงเมื่อจอแคบ */
+@media (max-width: 1180px) {
+    .bottom-data-section {
+        flex-wrap: wrap; /* ยอมให้ตกบรรทัด */
+    }
+    
+    .control-sidebar-container {
+        width: 100% !important; /* เต็มความกว้าง */
+        flex: none !important;
+        order: 2; /* ย้ายไปไว้ล่างสุด หรือจะเอาไว้บน (order: -1) ก็ได้ */
+        margin-bottom: 20px;
+    }
+    
+    .stats-column {
+        width: 100%;
+        flex: none !important;
+        order: 1;
+    }
+}
+
+/* 2. ทำให้คิวเลื่อนได้ (Scrollable) ไม่กินที่จนล้น */
+#player-queue {
+    max-height: 350px; /* จำกัดความสูง */
+    overflow-y: auto;  /* ให้เลื่อนแนวตั้งได้ */
+    border: 1px solid #eee;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.5);
+}
+
+/* ปรับแต่ง Scrollbar ให้สวยงาม (Webkit only) */
+#player-queue::-webkit-scrollbar {
+    width: 6px;
+}
+#player-queue::-webkit-scrollbar-thumb {
+    background-color: #ccc;
+    border-radius: 4px;
+}
+
+/* 3. ปรับขนาดปุ่มใน Sidebar ให้กดง่ายขึ้นบนนิ้วสัมผัส */
+.control-panel button {
+    padding: 10px 15px; /* เพิ่มพื้นที่สัมผัส */
+    margin-bottom: 5px;
+}
 </style>  
