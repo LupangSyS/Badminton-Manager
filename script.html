@@ -621,13 +621,9 @@ const autoFillCourts = () => {
 };
 
 
-// ปุ่ม 1: สุ่มคน (Smart Fill)
 const fillCourtSmart = (courtIdx) => {
     const court = courts[courtIdx];
-   
-    // 🔴 แก้ตรงนี้: ใช้ countRealPlayers นับคนจริงๆ
     const needed = 4 - countRealPlayers(court);
-   
     const candidates = getSmartDraft(needed);
    
     if (candidates.length > 0) {
@@ -635,7 +631,11 @@ const fillCourtSmart = (courtIdx) => {
             p.status = 'playing';
             p.sessionGames = 0;
             if(p.isFastPass) p.isFastPass = false;
-            // ใช้ addPlayerToCourt ยัดลงรู
+            
+            // ✨ เพิ่ม 2 บรรทัดนี้: ลงสนามแล้วถือว่าใช้สิทธิ์จองไปแล้ว (เป็นอิสระ พร้อมโดนจองใหม่)
+            p.bookingId = null;
+            p.bookingTeam = null;
+
             addPlayerToCourt(court, p);
         });
         renderCourts();
@@ -925,7 +925,18 @@ function resolveGame(winningTeamIdx) {
 }
 
 
-function sendToQueue(playerId) { const pl = players.find(x => x.id === playerId); if(pl) { pl.status = 'waiting'; pl.joinedQueueAt = Date.now(); pl.bookingId = null; pl.bookingTeam = null; pl.sessionGames = 0; } }
+function sendToQueue(playerId) { 
+  const pl = players.find(x => x.id === playerId);
+   if(pl) { 
+        pl.status = 'waiting'; 
+        pl.joinedQueueAt = Date.now(); 
+        
+        // ❌ ลบ 2 บรรทัดนี้ทิ้ง! (bookingId = null) 
+        // เพราะถ้าเขาโดนจองตัวตอนเล่นอยู่ ค่า bookingId จะเป็นค่าใหม่ที่เราเพิ่งใส่ไป
+        // ถ้าเราไปลบตรงนี้ การจองล่วงหน้าจะหายวับไปทันทีที่จบเกมครับ
+        
+        pl.sessionGames = 0; 
+    } }
 // เปลี่ยนเป็น Modern Syntax (Arrow Function)
 // แก้ไข: ลบคนออกแบบ "เจาะรู" (Fixed Slot) ไม่ให้คนอื่นเลื่อนตำแหน่ง
 const kickPlayer = (courtIdx, slotIdx) => {
@@ -1149,31 +1160,31 @@ let currentBookingType = '';
 // แก้ไข: ใช้ Dropdown เลือกคน เพื่อระบุตำแหน่ง/ทีม ได้ชัดเจน
 const openBookingModal = (type) => {
     currentBookingType = type;
-    // ดึงคนที่ว่างและยังไม่ได้จอง
-    const waiting = players
-        .filter(p => p.status === 'waiting' && !p.bookingId && !p.isResting)
-        .sort((a,b) => a.joinedQueueAt - b.joinedQueueAt); // เรียงตามคิว
+    
+    // ✨ แก้ตรงนี้: ไม่เช็ค status='waiting' แล้ว (เอาหมดถ้ายังไม่ติดจอง)
+    const candidates = players
+        .filter(p => !p.bookingId && !p.isResting)
+        .sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
 
-
-    // สร้างตัวเลือกใน Dropdown
-    const options = waiting.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    // สร้างตัวเลือก (เพิ่มสถานะบอก)
+    const options = candidates.map(p => {
+        const statusText = p.status === 'playing' ? ' (กำลังเล่น 🏸)' : '';
+        return `<option value="${p.id}">${p.name}${statusText}</option>`;
+    }).join('');
    
     let html = '';
+    // ... (ส่วน HTML ด้านล่างเหมือนเดิมเป๊ะๆ ก๊อปของเดิมมาวางต่อได้เลย) ...
     if (type === 'pair') {
         html += `<h4>👥 จองคู่ (2 คน)</h4>`;
         html += `<label>คนแรก:</label><select id="b-p1" style="width:100%; margin-bottom:10px; padding:5px;">${options}</select>`;
         html += `<label>คนที่สอง:</label><select id="b-p2" style="width:100%; margin-bottom:10px; padding:5px;">${options}</select>`;
-    } else { // match (4 คน)
+    } else { 
         html += `<h4>⚔️ จองแมตช์ (4 คน / 2 ทีม)</h4>`;
-       
-        // Team 1 (สีชมพู)
         html += `<div style="background:#ffcdd2; padding:10px; border-radius:8px; margin-bottom:10px;">`;
         html += `<strong style="color:#b71c1c;">Team 1 (สีชมพู):</strong>`;
         html += `<select id="b-p1" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
         html += `<select id="b-p2" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
         html += `</div>`;
-       
-        // Team 2 (สีฟ้า)
         html += `<div style="background:#bbdefb; padding:10px; border-radius:8px;">`;
         html += `<strong style="color:#0d47a1;">Team 2 (สีฟ้า):</strong>`;
         html += `<select id="b-p3" style="width:100%; margin:5px 0; padding:5px;">${options}</select>`;
@@ -1182,6 +1193,13 @@ const openBookingModal = (type) => {
     }
    
     document.getElementById('booking-inputs').innerHTML = html;
+    
+    // คืนชีพปุ่ม
+    const actions = document.querySelector('#booking-modal .modal-actions');
+    if (actions) {
+        actions.style.display = 'flex'; 
+        actions.innerHTML = `<button class="secondary" onclick="closeModal('booking-modal')">ยกเลิก</button><button class="success" onclick="confirmBooking()">ยืนยัน</button>`;
+    }
     document.getElementById('booking-modal').style.display = 'flex';
 };
 // แก้ไข: บันทึกข้อมูล Team (1 หรือ 2) ลงไปในตัวผู้เล่นด้วย
@@ -1394,32 +1412,23 @@ window.restoreModal = (oldContent) => {
 const confirmManualAdd = (playerId) => {
     const court = courts[currentManualAddCourtIdx];
     const p = players.find(x => x.id === playerId);
-   
     if (!p) return;
-
-
-    // 🔴 แก้จุดที่ 1: ใช้ countRealPlayers แทน .length
-    // เพื่อนับเฉพาะคนที่มีตัวตนจริงๆ ไม่นับรูว่าง
     if (countRealPlayers(court) >= 4) { alert('ช้าไป! สนามเต็มแล้ว'); return; }
 
-
-    // ถ้าดึงคนที่มี Booking ลงมา -> ดึงคนเดียวตามที่สั่ง (Manual)
-   
     p.status = 'playing';
     p.sessionGames = 0;
     if(p.isFastPass) p.isFastPass = false;
+    
+    // ✨ เพิ่ม 2 บรรทัดนี้เหมือนกัน
+    p.bookingId = null;
+    p.bookingTeam = null;
    
-    // 🔴 แก้จุดที่ 2: ใช้ addPlayerToCourt แทน .push
-    // เพื่อให้มันเสียบลงรูว่าง (null) ที่มีอยู่ ไม่ใช่ไปต่อตูดแถว
     addPlayerToCourt(court, p);
-   
     closeModal('booking-modal');
-   
-    // กู้คืนปุ่ม Modal เดิม
-    document.querySelector('#booking-modal .modal-actions').innerHTML =
-        `<button class="secondary" onclick="closeModal('booking-modal')">ยกเลิก</button>
-         <button class="success" onclick="confirmBooking()">ยืนยัน</button>`;
-
+    
+    // Restore buttons
+    const actions = document.querySelector('#booking-modal .modal-actions');
+    if (actions) actions.innerHTML = `<button class="secondary" onclick="closeModal('booking-modal')">ยกเลิก</button><button class="success" onclick="confirmBooking()">ยืนยัน</button>`;
 
     renderCourts();
 };
