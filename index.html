@@ -3,22 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <meta http-equiv="Content-Security-Policy" content="
-        default-src 'self' https://html2canvas.hertzen.com; 
-        script-src 'self' 'unsafe-inline' https://html2canvas.hertzen.com; 
-        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; 
-        font-src https://fonts.gstatic.com; 
-        img-src 'self' data:; 
-        connect-src 'none';">
-    
-    <title>Badminton Manager V7.0 (Separated Version)</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://html2canvas.hertzen.com; script-src 'self' 'unsafe-inline' https://html2canvas.hertzen.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none';">
+    <title>Badminton Manager V9 (iPad Optimized)</title>
     <button id="btn-broadcast" class="secondary" onclick="toggleBroadcast()" style="margin-left: 10px;">📡 เริ่ม Live</button>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
-
     <?!= include('style'); ?>
 </head>
 <body>
@@ -26,49 +15,54 @@
     <div id="main-view">
         <div id="courts-container" class="courts-area-grid"></div>
 
+        <div id="next-match-panel" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 15px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h4 style="margin-top: 0; display: flex; align-items: center; gap: 10px; color: #ffffff !important; margin-bottom: 10px;">
+                📢 เตรียมตัวลงสนาม (Next Match)
+                <span style="font-size: 0.8em; font-weight: normal; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 20px;">Auto Preview</span>
+            </h4>
+            <div id="next-match-list" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; justify-content: flex-start;">
+                <div style="text-align:center; color: #ddd; font-style: italic;">... กำลังคำนวณ ...</div>
+            </div>
+        </div>
+
         <div class="bottom-data-section">
             <div class="control-sidebar-container pastel-panel panel-blue">
-                <h3>🎮 ควบคุม & คิว</h3>
                 
-                <div class="control-panel">
-                    <div class="input-group">
-                        <label>คอร์ท:</label>
-                        <button onclick="updateCourts(-1)">-</button>
-                        <span id="court-count" style="font-weight:bold; width: 25px; text-align:center;">2</span>
-                        <button onclick="updateCourts(1)">+</button>
-                        <div style="flex:1"></div>
-                        <button class="warning" onclick="resetStatsOnly()">รีเซ็ต</button>
-                        <button class="danger" onclick="resetAll()">ล้าง</button>
+                <div class="sidebar-controls-wrapper">
+                    <h3>🎮 ควบคุม</h3>
+                    <div class="control-panel">
+                        <div class="input-group">
+                            <label>คอร์ท:</label>
+                            <button onclick="updateCourts(-1)">-</button>
+                            <span id="court-count" style="font-weight:bold; width: 25px; text-align:center;">2</span>
+                            <button onclick="updateCourts(1)">+</button>
+                            <div style="flex:1"></div>
+                            <button class="warning" onclick="resetStatsOnly()">รีเซ็ต</button>
+                            <button class="danger" onclick="resetAll()">ล้าง</button>
+                        </div>
+                        <select id="game-rule" style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
+                            <option value="normal">แพ้/ชนะ ออกหมด (Normal)</option>
+                            <option value="winner_stay">อยู่ครบ 2 เกมค่อยออก (Fixed Quota)</option>
+                        </select>
                     </div>
-                    <select id="game-rule" style="width:100%; padding:8px; border-radius:6px; border:1px solid #ccc;">
-                        <option value="normal">แพ้/ชนะ ออกหมด (Normal)</option>
-                        <option value="winner_stay">อยู่ครบ 2 เกมค่อยออก (Fixed Quota)</option>
-                    </select>
+
+                    <div class="control-panel">
+                        <textarea id="new-players" placeholder="วางชื่อ... (1.แปง, 2.เวฟ)"></textarea>
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <button class="success" style="flex:1;" onclick="addPlayers()">+ เพิ่ม</button>
+                            <button class="secondary" onclick="openBookingModal('pair')">คู่</button>
+                            <button class="secondary" onclick="openBookingModal('match')">4</button>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="control-panel">
-                    <textarea id="new-players" placeholder="วางชื่อ... (1.แปง, 2.เวฟ)"></textarea>
-                    <div style="display:flex; gap:8px; margin-top:8px;">
-                        <button class="success" style="flex:1;" onclick="addPlayers()">+ เพิ่ม</button>
-                        <button class="secondary" onclick="openBookingModal('pair')">คู่</button>
-                        <button class="secondary" onclick="openBookingModal('match')">4</button>
+                <div class="sidebar-queue-wrapper">
+                    <h4 style="margin: 10px 0;">รอ (<span id="queue-count">0</span>)</h4>
+                    <div style="flex:1; max-height:300px; overflow-y:auto; padding-right:2px;">
+                        <ul id="player-queue" class="player-list"></ul>
                     </div>
                 </div>
-<div id="next-match-panel" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 15px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-    <h4 style="margin-top: 0; display: flex; align-items: center; gap: 10px; color: #ffffff !important; margin-bottom: 10px;">
-        📢 เตรียมตัวลงสนาม (Next Match)
-        <span style="font-size: 0.8em; font-weight: normal; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 20px;">Auto Preview</span>
-    </h4>
-    
-    <div id="next-match-list" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; justify-content: flex-start;">
-        <div style="text-align:center; color: #ddd; font-style: italic;">... กำลังคำนวณ ...</div>
-    </div>
-</div>
-</div>
-                <h4 style="margin: 10px 0;">รอ (<span id="queue-count">0</span>)</h4>
-                <div style="flex:1; max-height:300px; overflow-y:auto; padding-right:2px;">
-                    <ul id="player-queue" class="player-list"></ul>
-                </div>
+
             </div>
 
             <div class="stats-column pastel-panel panel-green">
@@ -83,13 +77,7 @@
                 <div style="flex:1; max-height: 450px; overflow-y:auto; border-radius:8px;">
                     <table class="stats-table">
                         <thead>
-                            <tr>
-                                <th width="10%">#</th>
-                                <th>ชื่อ</th>
-                                <th width="15%">P</th>
-                                <th width="15%">W</th>
-                                <th width="15%">%</th>
-                            </tr>
+                            <tr><th width="10%">#</th><th>ชื่อ</th><th width="15%">P</th><th width="15%">W</th><th width="15%">%</th></tr>
                         </thead>
                         <tbody id="stats-body"></tbody>
                     </table>
@@ -101,18 +89,8 @@
             <h3>📜 ประวัติล่าสุด</h3>
             <div style="max-height: 250px; overflow-y:auto; border-radius:8px;">
                 <table class="stats-table">
-                    <thead>
-                        <tr>
-                            <th width="15%">เวลา</th>
-                            <th width="10%">ที่</th>
-                            <th>ทีมชนะ (Win)</th>
-                            <th>ทีมแพ้ (Lose)</th>
-                            <th width="10%">เวลา</th>
-                        </tr>
-                    </thead>
-                    <tbody id="match-log-body">
-                        <tr><td colspan="5" style="color:gray;">-</td></tr>
-                    </tbody>
+                    <thead><tr><th width="15%">เวลา</th><th width="10%">ที่</th><th>ทีมชนะ (Win)</th><th>ทีมแพ้ (Lose)</th><th width="10%">เวลา</th></tr></thead>
+                    <tbody id="match-log-body"><tr><td colspan="5" style="color:gray;">-</td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -125,78 +103,38 @@
     <div id="overview-view" class="hidden">
         <div class="pastel-panel panel-white" id="summary-capture-area">
             <h2 style="text-align:center; border-bottom:2px solid #2c3e50; padding-bottom:10px;">🏸 สรุปผลการตีแบดมินตัน</h2>
-            
             <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:20px;">
                 <div style="flex:2; min-width:300px;">
                     <h4>รายชื่อ & สถิติ</h4>
                     <table class="stats-table">
-    <thead>
-        <tr>
-            <th>ชื่อ</th>
-            <th>Check-in</th>
-            <th>เล่น (Games)</th>
-            <th>ชนะ (Wins)</th>
-            <th>ค่าเน็ต (บาท)</th> </tr>
-    </thead>
-    <tbody id="overview-stats-body"></tbody>
-</table>
+                        <thead><tr><th>ชื่อ</th><th>Check-in</th><th>เล่น (Games)</th><th>ชนะ (Wins)</th><th>ค่าเน็ต (บาท)</th></tr></thead>
+                        <tbody id="overview-stats-body"></tbody>
+                    </table>
                 </div>
-
                 <div style="flex:1; min-width:300px; background:#f9f9f9; padding:15px; border-radius:12px; border:1px solid #ddd;">
                     <h4>💰 คำนวณค่าใช้จ่าย</h4>
-                    
-                    <div class="input-group">
-                        <label style="flex:1;">จำนวนคอร์ท:</label>
-                        <input type="number" id="calc-court-count" value="2" style="width:60px; padding:5px;" onchange="updateCost()">
-                    </div>
-                    <div class="input-group">
-                        <label style="flex:1;">ราคาคอร์ท/ชม.:</label>
-                        <input type="number" id="calc-court-price" value="180" style="width:60px; padding:5px;" onchange="updateCost()">
-                    </div>
-                    
+                    <div class="input-group"><label style="flex:1;">จำนวนคอร์ท:</label><input type="number" id="calc-court-count" value="2" style="width:60px; padding:5px;" onchange="updateCost()"></div>
+                    <div class="input-group"><label style="flex:1;">ราคาคอร์ท/ชม.:</label><input type="number" id="calc-court-price" value="180" style="width:60px; padding:5px;" onchange="updateCost()"></div>
                     <div style="margin:5px 0;">
                         <button class="mini-btn secondary" onclick="toggleCustomHours()">🕒 เวลาแต่ละคอร์ทไม่เท่ากัน?</button>
                         <div id="custom-hours-area" style="display:none; margin-top:5px; padding:5px; border:1px dashed #ccc;"></div>
                     </div>
-                    <div class="input-group" id="std-hours-group">
-                        <label style="flex:1;">จำนวน ชม. รวม:</label>
-                        <input type="number" id="calc-hours" value="2" style="width:60px; padding:5px;" onchange="updateCost()">
-                    </div>
-
+                    <div class="input-group" id="std-hours-group"><label style="flex:1;">จำนวน ชม. รวม:</label><input type="number" id="calc-hours" value="2" style="width:60px; padding:5px;" onchange="updateCost()"></div>
                     <hr>
-
-                    <div class="input-group">
-                        <label style="flex:1;">ราคาลูก (ต่อหลอด):</label>
-                        <input type="number" id="calc-shuttle-price" value="750" style="width:60px; padding:5px;" onchange="updateCost()">
-                    </div>
-                    <div class="input-group">
-                        <label style="flex:1;">ใช้ไป (ลูก):</label>
-                        <input type="number" id="calc-shuttle-used" value="0" style="width:60px; padding:5px;" onchange="updateCost()">
-                    </div>
-
-                    <div class="cost-total">
-                        รวมทั้งหมด: <span id="total-cost-display">0</span> บาท
-                    </div>
+                    <div class="input-group"><label style="flex:1;">ราคาลูก (ต่อหลอด):</label><input type="number" id="calc-shuttle-price" value="750" style="width:60px; padding:5px;" onchange="updateCost()"></div>
+                    <div class="input-group"><label style="flex:1;">ใช้ไป (ลูก):</label><input type="number" id="calc-shuttle-used" value="0" style="width:60px; padding:5px;" onchange="updateCost()"></div>
+                    <div class="cost-total">รวมทั้งหมด: <span id="total-cost-display">0</span> บาท</div>
                     <small style="color:gray;">(หารเฉลี่ยตามจำนวนคนเอาเองนะ)</small>
                 </div>
             </div>
-
             <div style="margin-top:20px;">
                 <h4 style="color:#f9a825;">⚠️ เช็คคู่ซ้ำ (ที่เคยเกิดขึ้น)</h4>
                 <table class="stats-table">
-                    <thead>
-                        <tr>
-                            <th>คู่ที่เจอกัน</th>
-                            <th>จำนวนครั้ง</th>
-                        </tr>
-                    </thead>
-                    <tbody id="overview-repeat-body">
-                        <tr><td colspan="2">ไม่มีข้อมูล</td></tr>
-                    </tbody>
+                    <thead><tr><th>คู่ที่เจอกัน</th><th>จำนวนครั้ง</th></tr></thead>
+                    <tbody id="overview-repeat-body"><tr><td colspan="2">ไม่มีข้อมูล</td></tr></tbody>
                 </table>
             </div>
         </div>
-
         <div class="nav-bar" style="gap:10px;">
             <button class="secondary" onclick="toggleView('main')">↩ กลับหน้าสนาม</button>
             <button class="success" onclick="endSession()">💾 จบการตีวันนี้ (Save Image)</button>
@@ -225,10 +163,11 @@
             </div>
         </div>
     </div>
-<script>
-      var APP_MODE = "<?= mode ?>";   // รับค่า mode ('master' หรือ 'viewer')
-      var APP_URL = "<?= appUrl ?>";  // รับค่า URL จริงของเว็บ
-</script>
+
+    <script>
+      var APP_MODE = "<?= mode ?>";
+      var APP_URL = "<?= appUrl ?>";
+    </script>
     <?!= include('script'); ?>
 </body>
 </html>
