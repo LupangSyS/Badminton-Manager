@@ -1,10 +1,16 @@
 <style>
+/* =========================================
+   🎨 GLOBAL & RESET
+   ========================================= */
 :root {
     --court-bg: #C1E1C1;
     --court-line: #ffffff;
     --primary: #2c3e50;
     --btn-bg: #3498db;
     --bg-body: #f0f4f8;
+}
+* {
+    box-sizing: border-box; 
 }
 body {
     font-family: 'Sarabun', sans-serif;
@@ -22,7 +28,7 @@ h1, h2, h3, h4 { margin: 0 0 10px 0; color: var(--primary); }
 #main-view, #overview-view { display: flex; flex-direction: column; gap: 15px; height: 100%;}
 .hidden { display: none !important; }
 
-/* Grid Layout */
+/* ✅ Grid Layout: ฟิกไว้ที่ 4 คอร์ทแนวนอนเสมอ (ตามสั่ง!) */
 .courts-area-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr); 
@@ -36,10 +42,9 @@ h1, h2, h3, h4 { margin: 0 0 10px 0; color: var(--primary); }
     align-items: flex-start;
 }
 
-.bottom-history-section {
-    width: 100%;
-    margin-top: 5px;
-}
+.control-sidebar-container { flex: 0 0 320px; } 
+.stats-column { flex: 1; min-width: 0; }
+.bottom-history-section { width: 100%; margin-top: 5px; }
 
 /* Panels */
 .pastel-panel {
@@ -57,9 +62,6 @@ h1, h2, h3, h4 { margin: 0 0 10px 0; color: var(--primary); }
 .panel-purple { background-color: #f3e5f5; color: #6a1b9a; }
 .panel-yellow { background-color: #fffde7; color: #f9a825; }
 .panel-white { background-color: #ffffff; color: #333; }
-
-.control-sidebar-container { flex: 0 0 320px; } 
-.stats-column { flex: 1; min-width: 0; }
 
 /* Components */
 .control-panel { border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 15px; margin-bottom: 15px; }
@@ -178,14 +180,6 @@ button.mini-btn { padding: 2px 6px; font-size: 0.75em; margin-left: auto; }
 .cost-total { font-size: 1.2em; font-weight: bold; color: #2c3e50; border-top: 2px solid #ccc; margin-top: 10px; padding-top: 10px;}
 .nav-bar { display:flex; justify-content: center; margin-top: auto; padding: 10px;}
 
-/* Media Queries */
-@media (max-width: 1024px) { .courts-area-grid { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 820px) {
-    .bottom-data-section { flex-direction: column; }
-    .control-sidebar-container { width: 100%; flex: auto; }
-    .courts-area-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 500px) { .courts-area-grid { grid-template-columns: 1fr; } }
 /* Animation ปุ่ม Live */
 .pulse {
     background-color: #e74c3c !important;
@@ -198,168 +192,69 @@ button.mini-btn { padding: 2px 6px; font-size: 0.75em; margin-left: auto; }
     100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
 }
 
-/* โหมดคนดู (Viewer Mode): ซ่อนปุ่มกดทุกอย่าง */
-body.view-mode button:not(.btn-overlay), /* เก็บปุ่มเปิดสนามไว้ดูเล่นๆ ได้ แต่กดไปก็ไม่มีผล */
+/* =========================================
+   📺 VIEWER MODE
+   ========================================= */
+body.view-mode button:not(.btn-overlay),
 body.view-mode .mini-btn,
 body.view-mode input,
 body.view-mode select,
 body.view-mode #btn-broadcast,
-body.view-mode .modal {
-    display: none !important;
-}
+body.view-mode .modal { display: none !important; }
 
-/* เปิดเฉพาะสิ่งที่จำเป็นให้คนดูเห็น */
 body.view-mode #player-queue,
 body.view-mode #courts-container,
-body.view-mode #next-match-panel {
-    pointer-events: none; /* ห้ามจิ้ม */
-}
-/* =========================================
-   📺 CLEAN VIEWER MODE (เฉพาะคนดู)
-   ========================================= */
-body.view-mode {
-    background-color: #f4f6f9;
-    padding: 10px;
-}
+body.view-mode #next-match-panel { pointer-events: none; }
 
-/* 1. ซ่อนส่วนที่ไม่จำเป็น (Dashboard, History, Controls) */
-body.view-mode .stats-column,             /* ❌ ซ่อนแดชบอร์ด (ตารางสถิติ) */
-body.view-mode .bottom-history-section,   /* ❌ ซ่อนประวัติแมตช์ */
-body.view-mode .nav-bar,                  /* ❌ ซ่อนปุ่มเปลี่ยนหน้า */
-body.view-mode #btn-broadcast,            /* ❌ ซ่อนปุ่ม Live */
-body.view-mode .control-panel,            /* ❌ ซ่อนแผงควบคุม */
-body.view-mode h1,                        /* ❌ ซ่อนหัวข้อ */
+body.view-mode { background-color: #f4f6f9; padding: 10px; }
+body.view-mode .stats-column,
+body.view-mode .bottom-history-section,
+body.view-mode .nav-bar,
+body.view-mode #btn-broadcast,
+body.view-mode .control-panel,
+body.view-mode h1,
 body.view-mode #queue-count,
-body.view-mode #player-queue,             /* ❌ ซ่อนรายชื่อคิว */
+body.view-mode #player-queue,
 body.view-mode .control-sidebar-container h3, 
-body.view-mode .control-sidebar-container h4 {
-    display: none !important;
-}
+body.view-mode .control-sidebar-container h4 { display: none !important; }
 
-/* 2. ✅ เปิดกล่องแม่ (Parent) เอาไว้ก่อน (ห้ามซ่อนบรรทัดนี้ ไม่งั้น Next Match หาย) */
-body.view-mode .bottom-data-section {
-    display: flex !important; 
-    flex-direction: column; /* เรียงแนวตั้ง */
-    width: 100%;
-}
+body.view-mode .bottom-data-section { display: flex !important; flex-direction: column; width: 100%; }
+body.view-mode .control-sidebar-container { display: none !important; }
 
-/* 3. 📢 จัด Next Match ให้เด่นๆ */
-body.view-mode .control-sidebar-container {
-    order: -1; /* ย้ายขึ้นบนสุด */
-    width: 100%;
-    flex: none;
-    background: transparent !important; /* โปร่งใส */
-    box-shadow: none !important;
-    border: none !important;
-    padding: 0;
-}
+body.view-mode #next-match-panel { display: block !important; width: 100%; box-sizing: border-box; }
+body.view-mode #next-match-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+body.view-mode #courts-container { order: 2; margin-top: 10px; }
+body.view-mode .courts-area-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important; gap: 15px; }
+body.view-mode .court { min-height: 250px; border-radius: 16px; box-shadow: 0 5px 15px rgba(0,0,0,0.08); border: none; }
+body.view-mode .court-header { background: #2c3e50; color: white; border-radius: 16px 16px 0 0; border: none; }
 
-body.view-mode #next-match-panel {
-    display: block !important;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-/* ปรับ Next Match List ให้เรียงแนวนอนสวยๆ ในมือถือ */
-body.view-mode #next-match-list {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
-}
-
-/* 4. 🏸 จัดสนามให้ใหญ่เต็มตา */
-body.view-mode #courts-container {
-    order: 2; /* อยู่ต่อจาก Next Match */
-    margin-top: 10px;
-}
-
-body.view-mode .courts-area-grid {
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important; 
-    gap: 15px;
-}
-
-/* ปรับแต่งการ์ดสนามสำหรับคนดู */
-body.view-mode .court {
-    min-height: 250px;
-    border-radius: 16px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.08);
-    border: none; /* เอาขอบเขียวออกให้ดูคลีนๆ */
-}
-body.view-mode .court-header {
-    background: #2c3e50;
-    color: white;
-    border-radius: 16px 16px 0 0;
-    border: none;
-}
-/* --- IPAD & RESPONSIVE FIXES --- */
-
-/* 1. ปรับ Layout หลักให้ไหลลงเมื่อจอแคบ */
-@media (max-width: 1180px) {
-    .bottom-data-section {
-        flex-wrap: wrap; /* ยอมให้ตกบรรทัด */
-    }
-    
-    .control-sidebar-container {
-        width: 100% !important; /* เต็มความกว้าง */
-        flex: none !important;
-        order: 2; /* ย้ายไปไว้ล่างสุด หรือจะเอาไว้บน (order: -1) ก็ได้ */
-        margin-bottom: 20px;
-    }
-    
-    .stats-column {
-        width: 100%;
-        flex: none !important;
-        order: 1;
-    }
-}
-
-/* 2. ทำให้คิวเลื่อนได้ (Scrollable) ไม่กินที่จนล้น */
-#player-queue {
-    max-height: 350px; /* จำกัดความสูง */
-    overflow-y: auto;  /* ให้เลื่อนแนวตั้งได้ */
-    border: 1px solid #eee;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.5);
-}
-
-/* ปรับแต่ง Scrollbar ให้สวยงาม (Webkit only) */
-#player-queue::-webkit-scrollbar {
-    width: 6px;
-}
-#player-queue::-webkit-scrollbar-thumb {
-    background-color: #ccc;
-    border-radius: 4px;
-}
-
-/* 3. ปรับขนาดปุ่มใน Sidebar ให้กดง่ายขึ้นบนนิ้วสัมผัส */
-.control-panel button {
-    padding: 10px 15px; /* เพิ่มพื้นที่สัมผัส */
-    margin-bottom: 5px;
-}
-/* --- iPad & Tablet Responsive (NEW) --- */
-@media (max-width: 1180px) {
-    /* ให้กล่องหลักไหลลงแนวตั้ง */
+/* =========================================
+   📱 iPad & Tablet Layout (PRO MAX)
+   ========================================= */
+@media (max-width: 1400px) {
+    /* 1. จัด Layout หลักให้ไหลลง (เอา Dashboard ไปไว้ล่าง) */
     .bottom-data-section {
         flex-direction: column !important;
     }
     
-    /* กล่องสีฟ้า (Control & Queue) ขยายเต็มจอ และจัดข้างในเป็นแนวนอน */
+    /* 2. กล่องควบคุม (ฟ้า): ขยายเต็มจอ + จัดไส้ในเป็นแนวนอน (ซ้าย-ขวา) */
     .control-sidebar-container {
         width: 100% !important;
+        max-width: 100% !important;
         flex: none !important;
         
-        display: flex !important;       /* เปิด Flexbox */
-        flex-direction: row !important; /* บังคับแนวนอน */
-        gap: 20px;                      /* เว้นระยะห่าง */
+        display: flex !important;       
+        flex-direction: row !important; 
+        gap: 20px;                      
         align-items: flex-start;
     }
 
-    /* แบ่งครึ่งพื้นที่ (50% - 50%) */
+    /* แบ่งพื้นที่คนละครึ่ง (50% - 50%) */
     .sidebar-controls-wrapper, 
     .sidebar-queue-wrapper {
-        flex: 1;             /* ยืดเท่ากัน */
-        min-width: 300px;    /* กันบีบจนเละ */
+        flex: 1;             
+        width: 50%;          
+        min-width: 300px; /* กันบีบเกินไป */
     }
 
     /* ปรับความสูงคิวไม่ให้ยาวเกินไปบน iPad */
@@ -367,65 +262,24 @@ body.view-mode .court-header {
         max-height: 250px !important;
     }
 
-    /* แดชบอร์ด (สีเขียว) ก็ให้เต็มจอ */
+    /* 3. แดชบอร์ด (เขียว): ขยายเต็มจอ */
     .stats-column {
         width: 100% !important;
         flex: none !important;
         margin-top: 10px;
-    }
-}
-
-/* มือถือ (จอเล็ก) ให้กลับมาเรียงแนวตั้งเหมือนเดิม */
-@media (max-width: 600px) {
-    .control-sidebar-container {
-        flex-direction: column !important;
-    }
-}
-/* =========================================
-   📱 iPad & Tablet Layout Redesign
-   ========================================= */
-@media (max-width: 1180px) {
-    /* 1. บังคับให้กล่องหลักไหลลงแนวตั้ง (เอา Dashboard ไปไว้ล่าง) */
-    .bottom-data-section {
-        flex-direction: column !important;
     }
     
-    /* 2. ขยายกล่องควบคุมให้เต็มจอ แล้วจัดไส้ในเป็นแนวนอน (ซ้าย-ขวา) */
-    .control-sidebar-container {
-        width: 100% !important;
-        flex: none !important;
-        
-        display: flex !important;       /* เปิด Flexbox */
-        flex-direction: row !important; /* บังคับแนวนอน */
-        gap: 20px;                      /* เว้นระยะห่าง */
-        align-items: flex-start;
-    }
-
-    /* 3. แบ่งพื้นที่คนละครึ่ง (50% - 50%) */
-    .sidebar-controls-wrapper, 
-    .sidebar-queue-wrapper {
-        flex: 1;             /* ยืดเท่ากัน */
-        width: 50%;          /* กันเหนียว */
-    }
-
-    /* ปรับความสูงคิวไม่ให้ยาวเกินไปบน iPad เดี๋ยวจะดันจอ */
-    #player-queue {
-        max-height: 250px !important;
-    }
-
-    /* 4. แดชบอร์ด (สีเขียว) ก็ให้กว้างเต็มจอ */
-    .stats-column {
-        width: 100% !important;
-        flex: none !important;
-        margin-top: 10px;
-    }
+    /* ❌ ลบคำสั่ง .courts-area-grid ทิ้งแล้ว! 
+       (มันจะกลับไปใช้ค่า Default ที่บรรทัด 30 คือ repeat(4, 1fr) เสมอ!) */
 }
 
 /* =========================================
-   📱 Mobile Layout (จอเล็กกว่า iPad)
+   📱 Mobile Layout (จอเล็กกว่า 600px)
    ========================================= */
 @media (max-width: 600px) {
-    /* มือถือให้กลับมาเรียงแนวตั้งเหมือนเดิม ไม่งั้นเบียดตาย */
+    /* มือถือ: ทุกอย่างเรียงตั้ง และคอร์ทเรียงเดี่ยว */
+    .courts-area-grid { grid-template-columns: 1fr; }
+    
     .control-sidebar-container {
         flex-direction: column !important;
     }
@@ -434,12 +288,4 @@ body.view-mode .court-header {
         width: 100% !important;
     }
 }
-
-/* =========================================
-   📺 Viewer Mode Updates
-   ========================================= */
-/* ซ่อนกล่องควบคุมทั้งหมด (เพราะย้าย Next Match ออกมาแล้ว กล่องนี้ก็ไม่มีประโยชน์สำหรับคนดู) */
-body.view-mode .control-sidebar-container {
-    display: none !important;
-}
-</style>  
+</style>
