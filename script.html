@@ -1,9 +1,8 @@
 <script>
 // ==========================================
-// 1. CONFIG & GLOBAL VARS
+// 1. CONFIG & DATA
 // ==========================================
-const STORAGE_KEY = 'BADMINTON_MANAGER_V8_DATA';
-// รับค่าจาก index.html (ถ้าไม่มีให้ถือว่าเป็น master)
+const STORAGE_KEY = 'BADMINTON_MANAGER_V9_FIXED'; // เปลี่ยน Key เพื่อเคลียร์ค่าเก่าที่อาจจะเพี้ยน
 const isViewer = (typeof APP_MODE !== 'undefined' && APP_MODE === 'viewer');
 
 let players = []; 
@@ -25,11 +24,10 @@ const AUTO_START_DELAY = 30;
 // 2. HELPER FUNCTIONS
 // ==========================================
 
-// เช็คว่ามีหน้าต่างจองเปิดอยู่ไหม (กันปุ่มหาย)
 function isModalOpen() {
-    const booking = document.getElementById('booking-modal');
-    const winner = document.getElementById('winner-modal');
-    return (booking && booking.style.display === 'flex') || (winner && winner.style.display === 'flex');
+    const b = document.getElementById('booking-modal');
+    const w = document.getElementById('winner-modal');
+    return (b && b.style.display === 'flex') || (w && w.style.display === 'flex');
 }
 
 function formatTime(s) { 
@@ -37,6 +35,7 @@ function formatTime(s) {
 }
 
 function countRealPlayers(court) {
+    if(!court || !court.players) return 0;
     return court.players.filter(p => p !== null && p !== undefined).length;
 }
 
@@ -51,10 +50,10 @@ function getOpponentCount(id1, id2) { return opponentHistory[getPairKey(id1,id2)
 // ==========================================
 
 function saveData() {
-    if (isViewer) return; // Viewer ไม่ต้องเซฟ
+    if (isViewer) return; 
     const data = {
         players,
-        courts: courts.map(c => ({...c, interval: null})), // ตัด interval ทิ้งก่อนเซฟ
+        courts: courts.map(c => ({...c, interval: null})),
         courtCount,
         pairingHistory,
         opponentHistory,
@@ -81,7 +80,6 @@ function loadData() {
         if (data.courts) {
             courts = data.courts.map((c, idx) => {
                 c.interval = null;
-                // ถ้าสถานะเป็น playing ให้เดินเวลาต่อเลย
                 if (c.state === 'playing') {
                     c.interval = setInterval(() => { 
                         c.timer++; 
@@ -102,7 +100,7 @@ function loadData() {
 }
 
 // ==========================================
-// 4. CORE LOGIC (MATCHMAKING)
+// 4. CORE LOGIC & ACTIONS
 // ==========================================
 
 function autoBalanceTeam(candidates) {
@@ -169,7 +167,6 @@ function tryBuildTeam(captain, currentPool, targetCount) {
     while (selected.length < targetCount) {
         let nextPlayer = null;
         if (selected.length % 2 !== 0 && !selected[selected.length-1].bookingId) {
-            // หาคู่
             let best = null, minScore = Infinity;
             const soloist = selected[selected.length - 1];
             
@@ -182,7 +179,6 @@ function tryBuildTeam(captain, currentPool, targetCount) {
             }
             nextPlayer = best;
         } else {
-            // หาคนถัดไป
             nextPlayer = currentPool.find(p => !usedIds.has(p.id) && !p.bookingId);
         }
 
@@ -212,25 +208,221 @@ function autoFillCourts() {
     });
 }
 
+function addPlayers() {
+    const txt = document.getElementById('new-players').value.trim();
+    if(!txt) return;
+    txt.split('\n').map(n=>n.trim()).filter(n=>n).forEach(name => {
+        players.push({ id: Date.now()+Math.random(), name, level:'BG', gamesPlayed:0, wins:0, sessionGames:0, status:'waiting', joinedQueueAt: Date.now(), checkInTime: new Date() });
+    });
+    document.getElementById('new-players').value = '';
+    updateQueueDisplay(); saveData();
+}
+
+function removePlayer(id) {
+    const p = players.find(x => x.id === id);
+    if (!p) return;
+    if(p.status === 'playing') { alert('เล่นอยู่ ลบไม่ได้'); return; }
+    if(!confirm('ลบนะ?')) return;
+    players = players.filter(x => x.id !== id);
+    updateQueueDisplay(); saveData();
+}
+
+function fillCourtSmart(idx) {
+    const court = courts[idx];
+    const needed = 4 - countRealPlayers(court);
+    const candidates = getSmartDraft(needed);
+    if(candidates.length === 0) { alert('คนไม่พอ / ติดเงื่อนไขคู่ซ้ำ'); return; }
+    
+    candidates.forEach(p => { 
+        p.status = 'playing'; p.sessionGames = 0; p.isFastPass = false;
+        let emptyIdx = court.players.findIndex(x => x==null);
+        if(emptyIdx !== -1) court.players[emptyIdx] = p; else court.players.push(p);
+    });
+    renderCourts(); saveData();
+}
+function fillCourtQueue(idx) { fillCourtSmart(idx); }
+
+function startGame(idx) {
+    const c = courts[idx];
+    c.state = 'playing'; c.timer = 0; c.autoStartTarget = null;
+    
+    const p = c.players;
+    if(p[0]&&p[1]) recordPairing(p[0].id, p[1].id);
+    if(p[2]&&p[3]) recordPairing(p[2].id, p[3].id);
+    if(p[0]&&p[2]) recordOpponent(p[0].id, p[2].id);
+    if(p[0]&&p[3]) recordOpponent(p[0].id, p[3].id);
+    if(p[1]&&p[2]) recordOpponent(p[1].id, p[2].id);
+    if(p[1]&&p[3]) recordOpponent(p[1].id, p[3].id);
+
+    c.interval = setInterval(() => { c.timer++; document.getElementById(`timer-${idx}`).innerText = formatTime(c.timer); }, 1000);
+    renderCourts(); saveData();
+}
+
+function stopGame(idx) {
+    const c = courts[idx]; clearInterval(c.interval);
+    // นับสถิติเมื่อจบเกม
+    c.players.forEach(p => { 
+        if(p) { 
+            const pl=players.find(x=>x.id===p.id); 
+            if(pl){ 
+                pl.gamesPlayed++; 
+                // เพิ่มรอบที่เล่นใน session นี้
+                pl.sessionGames = (pl.sessionGames || 0) + 1; 
+            } 
+        } 
+    });
+    activeGameResolveCourtId = idx;
+    document.getElementById('winner-modal').style.display = 'flex';
+}
+
+function resolveGame(winTeamIdx) {
+    const c = courts[activeGameResolveCourtId];
+    document.getElementById('winner-modal').style.display = 'none';
+    
+    if (winTeamIdx === -1) {
+        c.players.forEach(p => { if(p) sendToQueue(p.id); });
+        c.players = []; c.state = 'post_game';
+    } else {
+        const t1 = [c.players[0], c.players[1]], t2 = [c.players[2], c.players[3]];
+        const winners = (winTeamIdx===0)?t1:t2, losers = (winTeamIdx===0)?t2:t1;
+        
+        matchLogs.unshift({
+            time: new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}),
+            court: activeGameResolveCourtId+1,
+            winners: winners.map(p=>p?p.name:'?').join(','),
+            losers: losers.map(p=>p?p.name:'?').join(','),
+            duration: formatTime(c.timer)
+        });
+        renderMatchLog(); // ✨ คืนชีพ: สั่งวาด Log ทันที
+        
+        winners.forEach(p => { 
+            if(p) { const pl=players.find(x=>x.id===p.id); if(pl) pl.wins++; } 
+        });
+        
+        // --- 🔥 แก้บั๊ก Winner Stay (Fixed Quota) ---
+        const rule = document.getElementById('game-rule').value;
+        let stayers=[], leavers=[];
+        
+        if (rule === 'normal') {
+            leavers.push(...t1, ...t2);
+        } else {
+            // เช็คโควต้าจาก "ข้อมูลจริง" ใน players array (ไม่ใช่ตัวแปรชั่วคราว)
+            const getSessionGames = (tempP) => {
+                if(!tempP) return 99; // ถ้าไม่มีตัวตน ให้เตะออก
+                const realP = players.find(x => x.id === tempP.id);
+                return realP ? (realP.sessionGames || 0) : 99;
+            };
+
+            const q1 = getSessionGames(winners[0]);
+            // ถ้าเล่นมาแล้ว < 2 เกม (คือเพิ่งจบเกมที่ 1) -> ได้อยู่ต่อ
+            // ถ้าเล่นมาครบ 2 เกมแล้ว (จบเกมที่ 2) -> ต้องออก
+            if (q1 < 2) {
+                stayers.push(...winners);
+                leavers.push(...losers);
+            } else {
+                leavers.push(...winners, ...losers); // ครบโควต้า ออกหมด
+            }
+        }
+        
+        leavers.forEach(p => { if(p) sendToQueue(p.id); });
+        
+        // จัดคนอยู่ต่อลงสนาม (ต้องใส่ให้ถูกตำแหน่ง)
+        c.players = [null, null, null, null]; // เคลียร์ก่อน
+        if (stayers.length > 0) {
+            c.players[0] = stayers[0];
+            c.players[1] = stayers[1];
+        }
+        c.state = stayers.length > 0 ? 'empty' : 'post_game'; // ถ้ามีคนอยู่ต่อ ให้สถานะเป็น empty รอคนมาเติม
+    }
+    c.timer = 0; renderCourts(); saveData();
+}
+
+function sendToQueue(id) { 
+    const pl = players.find(x=>x.id===id); 
+    if(pl) { 
+        pl.status='waiting'; 
+        pl.joinedQueueAt=Date.now(); 
+        pl.bookingId=null; 
+        pl.bookingTeam=null; 
+        pl.sessionGames=0; // รีเซ็ตโควต้าเมื่อกลับไปต่อคิว
+    } 
+}
+
+function kickPlayer(cIdx, sIdx) {
+    const c = courts[cIdx];
+    const p = c.players[sIdx];
+    if(!p) return;
+    if(!confirm(`เปลี่ยนตัว ${p.name} ออก?`)) return;
+    
+    sendToQueue(p.id);
+    c.players[sIdx] = null;
+    if(c.state==='playing') { clearInterval(c.interval); c.state='empty'; }
+    c.autoStartTarget = null;
+    renderCourts(); saveData();
+}
+
+// --- 🔥 แก้บั๊ก Reset จอขาว (เปลี่ยนเป็น Manual Clear) ---
+function resetAll() { 
+    if(!confirm('⚠️ ล้างข้อมูลทั้งหมด (เริ่มวันใหม่)?')) return;
+    
+    // 1. เคลียร์ตัวแปร Global
+    players = [];
+    courts.forEach(c => clearInterval(c.interval));
+    courts = [];
+    pairingHistory = {};
+    opponentHistory = {};
+    matchLogs = [];
+    bookingCounter = 0;
+    
+    // 2. เคลียร์ Storage
+    localStorage.removeItem(STORAGE_KEY);
+    
+    // 3. วาดหน้าจอใหม่ (โดยไม่ต้อง Reload)
+    renderCourts();
+    updateQueueDisplay();
+    updateDashboard();
+    renderMatchLog();
+    
+    alert('✅ ล้างข้อมูลเรียบร้อย!');
+}
+
+function resetStatsOnly() { 
+    if(!confirm('รีเซ็ตสถิติ (คนยังอยู่)?')) return;
+    players.forEach(p=>{
+        p.gamesPlayed=0; p.wins=0; p.sessionGames=0;
+        p.status = 'waiting';
+        p.bookingId = null;
+    });
+    pairingHistory = {};
+    opponentHistory = {};
+    matchLogs = [];
+    
+    // รีเซ็ตสนามด้วย
+    courts.forEach(c => {
+        clearInterval(c.interval);
+        c.players = []; c.state = 'empty'; c.timer = 0; c.isOpened = false;
+    });
+    
+    saveData();
+    renderCourts();
+    updateQueueDisplay();
+    updateDashboard();
+    renderMatchLog();
+    alert('✅ รีเซ็ตสถิติแล้ว!');
+}
+
 // ==========================================
-// 5. RENDER SYSTEM
+// 5. RENDER SYSTEM (UI)
 // ==========================================
 
 function renderCourts() {
-    // ✨ กันปุ่มหาย: ถ้าเปิด Modal อยู่ ห้ามวาดทับ
     if (isModalOpen()) return;
-
     const container = document.getElementById('courts-container');
     
-    // Sync Court Count
-    while (courts.length < courtCount) courts.push({ id: courts.length, players: [], state: 'empty', timer: 0, interval: null, isOpened: false });
-    while (courts.length > courtCount) {
-        const removed = courts.pop();
-        if(removed && removed.interval) clearInterval(removed.interval);
-    }
+    while (courts.length < courtCount) courts.push({ id: courts.length, players: [null,null,null,null], state: 'empty', timer: 0, interval: null, isOpened: false });
+    while (courts.length > courtCount) { const rm = courts.pop(); if(rm && rm.interval) clearInterval(rm.interval); }
 
     container.innerHTML = '';
-    
     courts.forEach((court, index) => {
         let overlayHTML = '';
         if (court.state === 'post_game') {
@@ -262,12 +454,12 @@ function renderCourts() {
     });
     
     updateQueueDisplay();
-    if(typeof updateDashboard === 'function') updateDashboard();
+    updateDashboard(); // ✨ คืนชีพ: เรียก Dashboard ทุกครั้งที่วาดคอร์ท
 }
 
 function renderP(p, cIdx, sIdx) {
     if (!p) return `<div class="player-on-court" style="opacity:0.7; border:2px dashed #ccc;" onclick="openManualAddModal(${cIdx})">+ ว่าง</div>`;
-    const badge = (document.getElementById('game-rule').value === 'winner_stay') ? `<span class="quota-badge">G: ${p.sessionGames+1}/2</span>` : '';
+    const badge = (document.getElementById('game-rule').value === 'winner_stay') ? `<span class="quota-badge" style="background:${p.sessionGames>=1?'#e67e22':'#27ae60'}">G: ${p.sessionGames+1}/2</span>` : '';
     return `<div class="player-on-court" onclick="kickPlayer(${cIdx}, ${sIdx})"><strong>${p.name}</strong><small>(${p.gamesPlayed}P)</small>${badge}</div>`;
 }
 
@@ -284,7 +476,7 @@ function renderControls(court, idx) {
         return `<button class="success" style="width:100%;" onclick="startGame(${idx})">เริ่มเกม</button>`;
     }
 
-    // Logic Booking Button Colors
+    // Logic Booking Button
     const waiting = players.filter(p => p.status === 'waiting').sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
     const head = waiting.length > 0 ? waiting[0] : null;
     const needed = 4 - realCount;
@@ -312,6 +504,36 @@ function renderControls(court, idx) {
             <button style="flex:1; ${isBookingFour?act4:dis}" ${isBookingFour?`onclick="fillCourtSmart(${idx})"`:'disabled'}>⚔️ 4 ${isBookingFour?'✅':''}</button>
         </div>
     </div>`;
+}
+
+// ✨ คืนชีพ: ฟังก์ชัน Dashboard ที่หายไป
+function updateDashboard() {
+    const tbody = document.getElementById('stats-body');
+    if(!tbody) return;
+    const sortType = document.getElementById('sort-select').value;
+    
+    let sorted = [...players].sort((a, b) => {
+        if (sortType === 'games_desc') return b.gamesPlayed - a.gamesPlayed;
+        if (sortType === 'games_asc') return a.gamesPlayed - b.gamesPlayed;
+        if (sortType === 'wins_desc') return b.wins - a.wins;
+        return 0;
+    });
+
+    tbody.innerHTML = sorted.map((p, index) => {
+        let rank = index + 1;
+        let medal = '';
+        if (rank === 1) medal = '🥇'; else if (rank === 2) medal = '🥈'; else if (rank === 3) medal = '🥉';
+        const rate = p.gamesPlayed > 0 ? Math.round((p.wins / p.gamesPlayed) * 100) : 0;
+        return `<tr><td>${medal} ${rank}</td><td>${p.name}</td><td>${p.gamesPlayed}</td><td>${p.wins}</td><td>${rate}%</td></tr>`;
+    }).join('');
+}
+
+// ✨ คืนชีพ: ฟังก์ชัน History Log ที่หายไป
+function renderMatchLog() {
+    const tbody = document.getElementById('match-log-body');
+    if(!tbody) return;
+    if (matchLogs.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:gray;">-</td></tr>'; return; }
+    tbody.innerHTML = matchLogs.map(log => `<tr><td>${log.time}</td><td>${log.court}</td><td class="log-winner">${log.winners}</td><td class="log-loser">${log.losers}</td><td>${log.duration}</td></tr>`).join('');
 }
 
 function updateQueueDisplay() {
@@ -376,130 +598,8 @@ function updateNextMatchPanel() {
 }
 
 // ==========================================
-// 6. ACTIONS (USER INTERACTION)
+// 6. ACTIONS (OTHER)
 // ==========================================
-
-function addPlayers() {
-    const txt = document.getElementById('new-players').value.trim();
-    if(!txt) return;
-    txt.split('\n').map(n=>n.trim()).filter(n=>n).forEach(name => {
-        players.push({ id: Date.now()+Math.random(), name, level:'BG', gamesPlayed:0, wins:0, status:'waiting', joinedQueueAt: Date.now(), checkInTime: new Date() });
-    });
-    document.getElementById('new-players').value = '';
-    updateQueueDisplay(); saveData();
-}
-
-function removePlayer(id) {
-    const p = players.find(x => x.id === id);
-    if (!p) return;
-    if(p.status === 'playing') { alert('เล่นอยู่ ลบไม่ได้'); return; }
-    if(!confirm('ลบนะ?')) return;
-    players = players.filter(x => x.id !== id);
-    updateQueueDisplay(); saveData();
-}
-
-function fillCourtSmart(idx) {
-    const court = courts[idx];
-    const needed = 4 - countRealPlayers(court);
-    const candidates = getSmartDraft(needed);
-    if(candidates.length === 0) { alert('คนไม่พอ / ติดเงื่อนไขคู่ซ้ำ'); return; }
-    
-    candidates.forEach(p => { 
-        p.status = 'playing'; p.sessionGames = 0; p.isFastPass = false;
-        // เสียบลงรูว่าง
-        let emptyIdx = court.players.findIndex(x => x==null);
-        if(emptyIdx !== -1) court.players[emptyIdx] = p; else court.players.push(p);
-    });
-    renderCourts(); saveData();
-}
-function fillCourtQueue(idx) { fillCourtSmart(idx); } // ใช้ Logic เดียวกัน
-
-function startGame(idx) {
-    const c = courts[idx];
-    c.state = 'playing'; c.timer = 0; c.autoStartTarget = null;
-    
-    // Record History
-    const p = c.players;
-    if(p[0]&&p[1]) recordPairing(p[0].id, p[1].id);
-    if(p[2]&&p[3]) recordPairing(p[2].id, p[3].id);
-    if(p[0]&&p[2]) recordOpponent(p[0].id, p[2].id);
-    if(p[0]&&p[3]) recordOpponent(p[0].id, p[3].id);
-    if(p[1]&&p[2]) recordOpponent(p[1].id, p[2].id);
-    if(p[1]&&p[3]) recordOpponent(p[1].id, p[3].id);
-
-    c.interval = setInterval(() => { c.timer++; document.getElementById(`timer-${idx}`).innerText = formatTime(c.timer); }, 1000);
-    renderCourts(); saveData();
-}
-
-function stopGame(idx) {
-    const c = courts[idx]; clearInterval(c.interval);
-    c.players.forEach(p => { if(p) { const pl=players.find(x=>x.id===p.id); if(pl){ pl.gamesPlayed++; pl.sessionGames++; } } });
-    activeGameResolveCourtId = idx;
-    document.getElementById('winner-modal').style.display = 'flex';
-}
-
-function resolveGame(winTeamIdx) {
-    const c = courts[activeGameResolveCourtId];
-    document.getElementById('winner-modal').style.display = 'none';
-    
-    if (winTeamIdx === -1) {
-        c.players.forEach(p => { if(p) sendToQueue(p.id); });
-        c.players = []; c.state = 'post_game';
-    } else {
-        const t1 = [c.players[0], c.players[1]], t2 = [c.players[2], c.players[3]];
-        const winners = (winTeamIdx===0)?t1:t2, losers = (winTeamIdx===0)?t2:t1;
-        
-        matchLogs.unshift({
-            time: new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}),
-            court: activeGameResolveCourtId+1,
-            winners: winners.map(p=>p.name).join(','),
-            losers: losers.map(p=>p.name).join(','),
-            duration: formatTime(c.timer)
-        });
-        
-        winners.forEach(p => { const pl=players.find(x=>x.id===p.id); if(pl) pl.wins++; });
-        
-        // Winner Stay / Normal Logic
-        const rule = document.getElementById('game-rule').value;
-        let stayers=[], leavers=[];
-        
-        if (rule === 'normal') {
-            leavers.push(...t1, ...t2);
-        } else {
-            const q1 = players.find(x=>x.id===t1[0].id).sessionGames;
-            const q2 = players.find(x=>x.id===t2[0].id).sessionGames;
-            if (q1<2 && q2<2) {
-                if(winTeamIdx===0) { stayers.push(...t1); leavers.push(...t2); }
-                else { stayers.push(...t2); leavers.push(...t1); }
-            } else {
-                if(q1>=2) leavers.push(...t1); else stayers.push(...t1);
-                if(q2>=2) leavers.push(...t2); else stayers.push(...t2);
-            }
-        }
-        
-        leavers.forEach(p => sendToQueue(p.id));
-        c.players = [...stayers]; c.state = 'post_game';
-    }
-    c.timer = 0; renderCourts(); saveData();
-}
-
-function kickPlayer(cIdx, sIdx) {
-    const c = courts[cIdx];
-    const p = c.players[sIdx];
-    if(!p) return;
-    if(!confirm(`เปลี่ยนตัว ${p.name} ออก?`)) return;
-    
-    sendToQueue(p.id);
-    c.players[sIdx] = null;
-    if(c.state==='playing') { clearInterval(c.interval); c.state='empty'; }
-    c.autoStartTarget = null;
-    renderCourts(); saveData();
-}
-
-function sendToQueue(id) { 
-    const pl = players.find(x=>x.id===id); 
-    if(pl) { pl.status='waiting'; pl.joinedQueueAt=Date.now(); pl.bookingId=null; pl.bookingTeam=null; pl.sessionGames=0; } 
-}
 
 function toggleLevel(id) {
     const p = players.find(x => x.id === id);
@@ -515,20 +615,18 @@ function toggleRest(id) {
 }
 
 function cancelStopGame() { 
-    // ย้อนค่าคืน
     const c = courts[activeGameResolveCourtId];
-    c.players.forEach(p => { if(p) { const pl=players.find(x=>x.id===p.id); if(pl){ pl.gamesPlayed--; pl.sessionGames--; } } });
+    c.players.forEach(p => { if(p) { const pl=players.find(x=>x.id===p.id); if(pl){ pl.gamesPlayed--; pl.sessionGames = Math.max(0, (pl.sessionGames||1)-1); } } });
     c.interval = setInterval(() => { c.timer++; document.getElementById(`timer-${activeGameResolveCourtId}`).innerText = formatTime(c.timer); }, 1000);
     document.getElementById('winner-modal').style.display='none'; 
 }
 
 function openCourt(idx) { courts[idx].isOpened=true; renderCourts(); saveData(); }
-function closeAndRest(idx) { courts[idx].isOpened=false; triggerFill(idx); } // triggerFill clears players
+function closeAndRest(idx) { courts[idx].isOpened=false; triggerFill(idx); }
 function triggerFill(idx) { courts[idx].players.forEach(p=>sendToQueue(p.id)); courts[idx].players=[]; courts[idx].state='empty'; renderCourts(); saveData(); }
 function updateCourts(n) { courtCount+=n; if(courtCount<1) courtCount=1; renderCourts(); saveData(); }
 function editCourtName(idx) { const n=prompt("ชื่อคอร์ท:"); if(n) { courts[idx].customName=n; renderCourts(); saveData(); } }
-function resetAll() { if(confirm('ล้างหมดนะ?')) { localStorage.removeItem(STORAGE_KEY); location.reload(); } }
-function resetStatsOnly() { if(confirm('รีเซ็ตสถิติ?')) { players.forEach(p=>{p.gamesPlayed=0;p.wins=0;p.sessionGames=0;}); saveData(); location.reload(); } }
+function updateCustomHoursInputs() { /* Placeholder */ } // ใส่ไว้กัน Error
 
 // ==========================================
 // 7. BOOKING & MODALS
@@ -585,7 +683,7 @@ function openManualAddModal(idx) {
     html += `</div>`;
     document.getElementById('booking-inputs').innerHTML = html;
     
-    // Save old buttons to restore later (lazy hack)
+    // Save old buttons
     const acts = document.querySelector('#booking-modal .modal-actions');
     acts.dataset.old = acts.innerHTML;
     acts.innerHTML = `<button class="secondary" onclick="closeModal('booking-modal'); this.parentElement.innerHTML=this.parentElement.dataset.old;">ยกเลิก</button>`;
@@ -619,9 +717,7 @@ function restoreState(json) {
     if(isModalOpen() || !json) return;
     const s = JSON.parse(json);
     players=s.players; courtCount=s.courtCount;
-    // Update Rule UI
     if(s.gameRule) document.getElementById('game-rule').value = s.gameRule;
-    // Restore Courts (no interval)
     courts = s.courts.map(c => ({...c, interval: null}));
     renderCourts();
 }
@@ -634,26 +730,24 @@ function toggleBroadcast() {
         if(!confirm('เริ่ม Live?')) return;
         syncInterval = setInterval(pushDataToCloud, 10000); pushDataToCloud();
         btn.innerHTML='🔴 On Air'; btn.classList.add('pulse');
-        // Show Link
         const url = (typeof APP_URL!=='undefined'?APP_URL:location.href.split('?')[0]) + '?mode=viewer';
         document.getElementById('booking-inputs').innerHTML = `<p>ส่งลิงก์นี้ให้เพื่อน:</p><input value="${url}" style="width:100%">`;
         document.getElementById('booking-modal').style.display='flex';
     }
 }
 
-// --- INIT APP ---
 function init() {
     if(isViewer) {
         document.body.classList.add('view-mode');
         google.script.run.withSuccessHandler(restoreState).syncLoadState();
         setInterval(() => google.script.run.withSuccessHandler(restoreState).syncLoadState(), 15000);
     } else {
-        loadData(); // Load local storage
+        loadData();
         renderCourts();
+        renderMatchLog(); // วาดประวัติเก่าด้วย
         setInterval(() => { if(!isModalOpen()) { autoFillCourts(); saveData(); } }, 10000);
     }
 }
 
-// Start
 init();
 </script>
