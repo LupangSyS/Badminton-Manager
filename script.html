@@ -158,9 +158,6 @@ const autoBalanceTeam = (candidates) => {
         const score3 = RANK_SCORES[p3.level||'BG'];
         const score4 = RANK_SCORES[p4.level||'BG'];
 
-        if (Math.abs(score1 - score2) > 2 || Math.abs(score3 - score4) > 2) {
-            return; // ยอมให้แบกได้ เพื่อ Balance พลังรวมสำคัญกว่า
-        }
 
         // --- 2. คำนวณความสมดุล (Primary Goal: Power Balance) ---
         
@@ -271,6 +268,20 @@ function init() {
         }
     }, 1000);
 
+// เพิ่มตัวนี้ลงไป เพื่อคอยอัปเดตเวลาทุกคอร์ทโดยคำนวณจาก StartTime
+    setInterval(() => {
+        courts.forEach((c, idx) => {
+            if (c.state === 'playing' && c.gameStartTime) {
+                // คำนวณเวลาจริง: (ปัจจุบัน - เวลาเริ่ม) / 1000
+                const diffSec = Math.floor((Date.now() - c.gameStartTime) / 1000);
+                c.timer = diffSec; // อัปเดตค่าในตัวแปร
+                
+                // อัปเดตหน้าจอ
+                const el = document.getElementById(`timer-${idx}`);
+                if (el) el.innerText = formatTime(diffSec);
+            }
+        });
+    }, 1000);
 
     setInterval(() => {
         if (!isModalOpen()) {
@@ -860,27 +871,22 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
 function startGame(courtIdx) {
     const court = courts[courtIdx];
     court.state = 'playing';
-    court.gameStartTime = Date.now();
+    court.gameStartTime = Date.now(); // ✅ จำเวลาเริ่ม
+    court.timer = 0; // รีเซ็ตตัวเลขโชว์
     court.autoStartTarget = null;
    
-    // 1. บันทึกคู่หู (Partner) - เหมือนเดิม
+    // 1. บันทึกคู่หู (เหมือนเดิม)
     if(court.players[0] && court.players[1]) recordPairing(court.players[0].id, court.players[1].id);
     if(court.players[2] && court.players[3]) recordPairing(court.players[2].id, court.players[3].id);
 
-
-    // 2. ✨ NEW: บันทึกคู่แข่ง (Opponent) - จดให้ครบทุกคน
-    // ทีม 1 (0,1) vs ทีม 2 (2,3)
+    // 2. บันทึกคู่แข่ง (เหมือนเดิม)
     const p0 = court.players[0]; const p1 = court.players[1];
     const p2 = court.players[2]; const p3 = court.players[3];
-
-
     if (p0 && p2) recordOpponent(p0.id, p2.id);
     if (p0 && p3) recordOpponent(p0.id, p3.id);
     if (p1 && p2) recordOpponent(p1.id, p2.id);
     if (p1 && p3) recordOpponent(p1.id, p3.id);
 
-
-    innerText = formatTime(court.timer); }, 1000);
     renderCourts();
     saveData();
 }
