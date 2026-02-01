@@ -222,8 +222,7 @@ const AUTO_START_DELAY = 30;
 function init() {
     renderCourts();
     updateQueueDisplay(); // ในนี้มี updateNextMatchPanel แล้ว ก็จบเลย
-    setInterval(autoFillCourts, 1000);
-    setInterval(updateQueueDisplay, 60000);
+
     updateCustomHoursInputs();
     // พยายามโหลดข้อมูลเก่าก่อน
     if (loadData()) {
@@ -1424,7 +1423,7 @@ const confirmManualAdd = (playerId) => {
 
     renderCourts();
 };
-// ✨ NEW: อัปเดตพาเนลคู่ถัดไป (Next Match)
+
 // ✨ NEW: อัปเดตพาเนลคู่ถัดไป (Next Match) - แบบโชว์หลายคู่
 function updateNextMatchPanel() {
     const container = document.getElementById('next-match-list');
@@ -1545,7 +1544,6 @@ function toggleBroadcast() {
 
 
 // ส่งข้อมูลขึ้น Cloud (Master Only)
-// ส่งข้อมูลขึ้น Cloud (Master Only)
 function pushDataToCloud() {
     // ย่อข้อมูลให้เล็กที่สุด (ตัด Logs ออก เดี๋ยวเต็ม)
     const state = {
@@ -1561,15 +1559,13 @@ function pushDataToCloud() {
 }
 
 
-// รับข้อมูลจาก Cloud มาแสดง (Viewer Only)
+
 // รับข้อมูลจาก Cloud มาแสดง (Viewer Only)
 function restoreState(json) {
     // ✨ FIX UI FREEZE: ถ้า Viewer กำลังกด Modal (เช่น ดูประวัติ หรือ setting) อย่าเพิ่ง Render ทับ
     if (isModalOpen()) return;
 
 
-    if (!json) return;
-    const state = JSON.parse(json);
     if (!json) return;
     const state = JSON.parse(json);
    
