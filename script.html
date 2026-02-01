@@ -159,7 +159,7 @@ const autoBalanceTeam = (candidates) => {
         const score4 = RANK_SCORES[p4.level||'BG'];
 
         if (Math.abs(score1 - score2) > 2 || Math.abs(score3 - score4) > 2) {
-            return; // ข้าม Combo นี้ทันที (Invalid Pairing)
+            return; // ยอมให้แบกได้ เพื่อ Balance พลังรวมสำคัญกว่า
         }
 
         // --- 2. คำนวณความสมดุล (Primary Goal: Power Balance) ---
@@ -860,7 +860,7 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
 function startGame(courtIdx) {
     const court = courts[courtIdx];
     court.state = 'playing';
-    court.timer = 0;
+    court.gameStartTime = Date.now();
     court.autoStartTarget = null;
    
     // 1. บันทึกคู่หู (Partner) - เหมือนเดิม
@@ -880,7 +880,7 @@ function startGame(courtIdx) {
     if (p1 && p3) recordOpponent(p1.id, p3.id);
 
 
-    court.interval = setInterval(() => { court.timer++; document.getElementById(`timer-${courtIdx}`).innerText = formatTime(court.timer); }, 1000);
+    innerText = formatTime(court.timer); }, 1000);
     renderCourts();
     saveData();
 }
@@ -986,11 +986,8 @@ function sendToQueue(playerId) {
    if(pl) { 
         pl.status = 'waiting'; 
         pl.joinedQueueAt = Date.now(); 
-        
-        // ❌ ลบ 2 บรรทัดนี้ทิ้ง! (bookingId = null) 
-        // เพราะถ้าเขาโดนจองตัวตอนเล่นอยู่ ค่า bookingId จะเป็นค่าใหม่ที่เราเพิ่งใส่ไป
-        // ถ้าเราไปลบตรงนี้ การจองล่วงหน้าจะหายวับไปทันทีที่จบเกมครับ
-        
+        pl.bookingId = null; 
+        pl.bookingTeam = null;
         pl.sessionGames = 0; 
     } }
 // เปลี่ยนเป็น Modern Syntax (Arrow Function)
