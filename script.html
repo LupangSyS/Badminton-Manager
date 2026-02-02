@@ -21,7 +21,8 @@ function saveData() {
         opponentHistory,
         matchLogs,
         bookingCounter,
-        gameRule: document.getElementById('game-rule').value
+        gameRule: document.getElementById('game-rule').value,
+        rankedMode: isRankedMode // ✨ บันทึกค่านี้
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -42,6 +43,15 @@ function loadData() {
         matchLogs = data.matchLogs || [];
         bookingCounter = data.bookingCounter || 0;
        
+       // ✨ Restore Ranked Mode
+        if (typeof data.rankedMode !== 'undefined') {
+            isRankedMode = data.rankedMode;
+            const cb = document.getElementById('ranked-mode-toggle');
+            if (cb) cb.checked = isRankedMode;
+        }
+
+        return true;
+
         // Restore Courts
         if (data.courts) {
             courts = data.courts.map((c, index) => { // ✨ เพิ่ม index
@@ -232,7 +242,7 @@ let activeGameResolveCourtId = null;
 let pairingHistory = {};
 let opponentHistory = {}; // ✨ NEW: ตัวแปรจำหน้าศัตรู
 let matchLogs = [];
-
+let isRankedMode = false; // ✨ NEW: ตัวแปรเก็บสถานะ Ranked Mode
 
 // --- Configuration (Frozen Logic V4.0) ---
 const AVG_GAME_DURATION = 15;
@@ -306,6 +316,18 @@ function toggleView(viewName) {
     }
 }
 
+function toggleRankedMode() {
+    const checkbox = document.getElementById('ranked-mode-toggle');
+    isRankedMode = checkbox.checked;
+    
+    if (isRankedMode) {
+        alert('🏆 เปิดโหมดจัดอันดับ! \nระบบจะพยายามจับคู่คนที่ "ฝีมือเท่ากัน" ลงด้วยกัน (P เจอ P, BG เจอ BG)');
+    } else {
+        alert('👌 ปิดโหมดจัดอันดับ \nกลับไปใช้ระบบ "คละมือ" เพื่อความบันเทิง (เฉลี่ยทีมให้สูสี)');
+    }
+    updateNextMatchPanel(); // อัปเดตหน้าจอทำนายผลทันที
+    saveData(); // บันทึกสถานะลงเครื่อง
+}
 
 // --- LOGIC: MATCHMAKING ---
 function getPairKey(id1, id2) { return id1 < id2 ? `${id1}-${id2}` : `${id2}-${id1}`; }
@@ -657,27 +679,53 @@ const autoFillCourts = () => {
 };
 
 
+// ค้นหา fillCourtSmart ตัวเดิม แล้วทับด้วยตัวนี้
 const fillCourtSmart = (courtIdx) => {
     const court = courts[courtIdx];
-    const needed = 4 - countRealPlayers(court);
-    const candidates = getSmartDraft(needed);
+    
+    // หาคนที่ค้างในสนาม (Winner Stay)
+    const existingPlayers = court.players.filter(p => p !== null && p !== undefined);
+    const needed = 4 - existingPlayers.length;
+
+    // ✨ 1. จำไว้ก่อนว่าใครคือ "หัวแถว" ตัวจริง
+    const waiting = players.filter(p => p.status === 'waiting' && !p.isResting && !p.bookingId)
+                           .sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
+    const headOfQueue = waiting.length > 0 ? waiting[0] : null;
+
+    // เรียกแก๊งค์สุ่ม
+    const candidates = getSmartDraft(needed, new Set(), existingPlayers);
    
     if (candidates.length > 0) {
+        // ✨ 2. เช็คว่าหัวแถวได้ลงไหม?
+        if (headOfQueue) {
+            const isHeadPicked = candidates.some(c => c.id === headOfQueue.id);
+            if (!isHeadPicked) {
+                // ถ้าหัวแถวไม่ได้ลง -> บวกแต้มความน่าสงสาร
+                headOfQueue.skipCount = (headOfQueue.skipCount || 0) + 1;
+                console.log(`😭 ${headOfQueue.name} โดนข้าม! (Skip: ${headOfQueue.skipCount})`);
+            } else {
+                // ถ้าได้ลง -> ล้างแต้มทิ้ง
+                headOfQueue.skipCount = 0;
+            }
+        }
+
         candidates.forEach(p => {
             p.status = 'playing';
             p.sessionGames = 0;
             if(p.isFastPass) p.isFastPass = false;
-            
-            // ✨ เพิ่ม 2 บรรทัดนี้: ลงสนามแล้วถือว่าใช้สิทธิ์จองไปแล้ว (เป็นอิสระ พร้อมโดนจองใหม่)
             p.bookingId = null;
             p.bookingTeam = null;
-
             addPlayerToCourt(court, p);
         });
         renderCourts();
     } else {
-        alert('⚠️ คนในคิวไม่พอสำหรับสูตรสุ่ม หรือติดเงื่อนไขคู่ซ้ำ!');
+        // ถ้าหาใครไม่ได้เลย ก็ถือว่าหัวแถวโดนข้ามเหมือนกัน
+        if (headOfQueue) {
+            headOfQueue.skipCount = (headOfQueue.skipCount || 0) + 1;
+        }
+        alert('⚠️ หาคนไม่ได้! (อาจเพราะคนไม่พอ หรือติดเงื่อนไข Rank/คู่ซ้ำ)');
     }
+    saveData(); // บันทึกแต้ม Skip ลงเครื่อง
 };
 
 
@@ -743,27 +791,50 @@ const fillCourtQueue = (courtIdx) => {
 // แก้ไข: เพิ่ม excludeIds (Set) เพื่อให้ข้ามคนที่ถูกเลือกไปแล้วใน Simulation ได้
 // แก้ไข: getSmartDraft ให้ฉลาดขึ้นด้วย Auto Balance
 // ฟังก์ชันดึงคนลงสนาม (Smart Draft)
-function getSmartDraft(count, excludeIds = new Set()) {
-    // กรองคน: รออยู่ + ไม่พัก + ไม่อยู่ในรายชื่อที่ต้องข้าม
+// แก้หัวฟังก์ชันรับ parameter เพิ่ม และเพิ่ม Logic เช็ค Rank
+// ค้นหา getSmartDraft ตัวเดิม แล้วทับด้วยตัวนี้
+function getSmartDraft(count, excludeIds = new Set(), existingPlayers = []) {
     let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
-    
-    // เรียงตามคิวมาก่อน (Fairness First)
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
 
     if (pool.length === 0) return [];
 
-    // ลองจัดทีมโดยให้แต่ละคนเป็นกัปตัน (วนหาความเป็นไปได้)
+    // ✨ LOGIC PITY: เช็คหัวแถวก่อนเลย
+    const head = pool[0];
+    
+    // ถ้าหัวแถวเคยโดนข้ามมาแล้ว (skipCount > 0) -> บังคับเป็นกัปตัน (Force Pick)
+    if (head && head.skipCount > 0) {
+        let targetScore = null;
+        
+        // คำนวณพลังรวมของคู่แข่งในสนาม (ถ้ามี) เพื่อเอาไปหาคู่ที่สมดุล
+        if (existingPlayers.length > 0) {
+            targetScore = existingPlayers.reduce((sum, p) => sum + (RANK_SCORES[p.level||'BG']||1), 0);
+        }
+
+        // เรียก tryBuildTeam แบบเปิดโหมด Pity (ส่ง isPity=true, targetScore ไป)
+        let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore);
+        
+        if (team.length === count) return team; 
+    }
+
+    // --- (ข้างล่างนี้คือ Logic ปกติ ไม่ได้แก้) ---
     for (let i = 0; i < pool.length; i++) {
         let captain = pool[i];
         
-        // ใช้ logic หาเพื่อนร่วมทีม (จากโค้ดเดิมที่เราแก้ไปรอบที่แล้ว ที่ฉลาดเลือก Opponent)
-        let team = tryBuildTeam(captain, pool, count); 
+        if (isRankedMode && existingPlayers.length > 0) {
+             const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
+             let isCompatible = true;
+             for(let ex of existingPlayers) {
+                 const exScore = RANK_SCORES[ex.level || 'BG'] || 1;
+                 if (Math.abs(capScore - exScore) >= 2) { isCompatible = false; break; }
+             }
+             if (!isCompatible) continue; 
+        }
+        
+        let team = tryBuildTeam(captain, pool, count, existingPlayers); 
         
         if (team.length === count) {
-            // ✨ ถ้าครบ 4 คน ให้ส่งเข้าโรงงานนรก God Tier Balancing ทันที
-            if (count === 4) {
-                return autoBalanceTeam(team);
-            }
+            if (count === 4) return autoBalanceTeam(team);
             return team;
         }
     }
@@ -771,13 +842,24 @@ function getSmartDraft(count, excludeIds = new Set()) {
     return [];
 }
 
+// ✨ Helper Function ใหม่: เช็คความเข้ากันได้ของ Rank (เอาไปแปะต่อท้าย getSmartDraft ก็ได้)
+function isRankCompatible(player, targetPlayers) {
+    const pScore = RANK_SCORES[player.level || 'BG'] || 1;
+    for (let target of targetPlayers) {
+        const tScore = RANK_SCORES[target.level || 'BG'] || 1;
+        // ถ้าห่างกันตั้งแต่ 2 ขั้นขึ้นไป (เช่น BG เจอ S) ถือว่าไม่ผ่าน
+        if (Math.abs(pScore - tScore) >= 2) return false; 
+    }
+    return true;
+}
 
 // ✨ แก้ไข: ฟังก์ชันจัดทีม (ให้ฉลาดเลือกคู่แข่งด้วย ไม่ใช่หยิบตามคิวอย่างเดียว)
-function tryBuildTeam(captain, currentPool, targetCount) {
+// แก้หัวฟังก์ชันรับ parameter เพิ่ม: isPity, targetScore
+function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], isPity = false, targetScore = null) {
     let selected = [];
     let usedIds = new Set();
 
-    // 1. ใส่กัปตัน (และพวกพ้องจอง)
+    // 1. ใส่กัปตัน
     if (captain.bookingId) {
         const group = currentPool.filter(x => x.bookingId === captain.bookingId);
         if (group.length > targetCount) return [];
@@ -788,19 +870,20 @@ function tryBuildTeam(captain, currentPool, targetCount) {
         usedIds.add(captain.id);
     }
 
-    // 2. เติมคนให้ครบ
+    // 2. หาคนเพิ่ม
     while (selected.length < targetCount) {
         let nextPlayer = null;
        
-        // กรณี A: ต้องการ "คู่หู" (คนปัจจุบันยังไม่มีคู่ และไม่ติดจอง)
         if (selected.length % 2 !== 0 && !selected[selected.length-1].bookingId) {
+            // หาคู่หู
             let currentSolo = selected[selected.length - 1];
-            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds);
+            // ✨ ส่ง isPity และ targetScore ไปให้ฟังก์ชันหาคู่
+            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds, existingPlayers, isPity, targetScore);
         } 
-        // กรณี B: ต้องการ "คู่แข่ง" (หาคนมาเติมทีมตรงข้าม)
         else {
-            // 🔥 แก้ตรงนี้: ใช้ฟังก์ชันเฟ้นหาคู่แข่ง (ไม่ใช้ .find แบบเดิมแล้ว)
-            nextPlayer = findBestOpponentInfinite(selected, currentPool, usedIds);
+            // หาคู่แข่ง (ถ้า isPity=true ให้ใช้ Logic ปกติไปเลย เพราะเราสนใจแค่คู่หูให้สมดุล)
+            const effectiveTeam = [...selected, ...existingPlayers];
+            nextPlayer = findBestOpponentInfinite(effectiveTeam, currentPool, usedIds);
         }
 
         if (nextPlayer) {
@@ -813,9 +896,73 @@ function tryBuildTeam(captain, currentPool, targetCount) {
     return selected;
 }
 
+// แก้ฟังก์ชันหาคู่หู ให้รับ rankCheckList (คือคนในสนาม)
+// แก้หัวฟังก์ชันรับ isPity, targetScore
+function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [], isPity = false, targetScore = null) {
+    let best = null;
+    let minScore = Infinity;
+    
+    const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
+   
+    for (let i = 0; i < fullPool.length; i++) {
+        const c = fullPool[i];
+        if (c.id === captain.id || usedIds.has(c.id) || c.bookingId) continue;
+       
+        // 1. คะแนนคู่ซ้ำ (ใช้เหมือนเดิมทุกกรณี)
+        const count = getPairCount(captain.id, c.id);
+        const pairPenalty = (count >= 2) ? 999999999 : count * 1000000;
+
+        let finalScore = 0;
+
+        // 🔥 กรณี PITY MODE: หาคนที่ทำให้ "ทีมเรา" สมดุลกับ "ทีมในสนาม"
+        if (isPity && targetScore !== null) {
+             const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+             
+             // พลังรวมทีมเรา = กัปตัน + แคนดิเดต
+             const ourTeamSum = capScore + cScore;
+             
+             // ความห่างชั้นกับคู่แข่งในสนาม
+             const diff = Math.abs(ourTeamSum - targetScore);
+             
+             // สูตรคะแนน: (ความห่าง * 1000) + ลำดับคิว
+             // ยิ่งห่างน้อย ยิ่งดี (Priority 1)
+             // ถ้าห่างเท่ากัน ใครมาก่อนได้ก่อน (Priority 2)
+             finalScore = pairPenalty + (diff * 1000) + i;
+        } 
+        // 🛡️ กรณีปกติ (RANKED MODE)
+        else {
+            let rankPenalty = 0;
+            if (isRankedMode) {
+                const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+                
+                // เช็คกับกัปตัน
+                const diffCap = Math.abs(capScore - cScore);
+                if (diffCap === 1) rankPenalty += 5000000;
+                if (diffCap >= 2) rankPenalty += 500000000;
+
+                // เช็คกับคนในสนาม
+                for(let existing of rankCheckList) {
+                    const exScore = RANK_SCORES[existing.level || 'BG'] || 1;
+                    const diffEx = Math.abs(cScore - exScore);
+                    if (diffEx === 1) rankPenalty += 5000000;
+                    else if (diffEx >= 2) rankPenalty += 500000000;
+                }
+            }
+            finalScore = pairPenalty + rankPenalty + i;
+        }
+       
+        if (finalScore < minScore) {
+            minScore = finalScore;
+            best = c;
+        }
+    }
+    return best;
+}
 
 
 
+
+// ค้นหาฟังก์ชันเดิม แล้วทับด้วยอันนี้
 function findBestPartnerInfinite(captain, fullPool, usedIds) {
     let best = null;
     let minScore = Infinity;
@@ -826,8 +973,22 @@ function findBestPartnerInfinite(captain, fullPool, usedIds) {
         if (c.id === captain.id || usedIds.has(c.id) || c.bookingId) continue;
        
         const count = getPairCount(captain.id, c.id);
-        const penalty = (count >= 2) ? 999999999 : count * 1000000;
-        const score = penalty + i;
+        const pairPenalty = (count >= 2) ? 999999999 : count * 1000000;
+
+        // ✨ RANKED LOGIC: คำนวณความต่างชั้น
+        let rankPenalty = 0;
+        if (isRankedMode) {
+            const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
+            const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+            const diff = Math.abs(capScore - cScore);
+            
+            // ถ้าต่างกัน 1 ขั้น (เช่น N กับ S) ปรับ 5 ล้าน (พอรับได้ถ้าคนขาด)
+            // ถ้าต่างกัน 2 ขั้นขึ้นไป (เช่น BG กับ S) ปรับ 500 ล้าน (ห้ามจับคู่เด็ดขาดถ้ามีทางเลือกอื่น)
+            if (diff === 1) rankPenalty = 5000000;
+            else if (diff >= 2) rankPenalty = 500000000;
+        }
+
+        const score = pairPenalty + rankPenalty + i; // +i คือให้ความสำคัญกับคิวก่อนหลังด้วยนิดนึง
        
         if (score < minScore) {
             minScore = score;
@@ -836,7 +997,8 @@ function findBestPartnerInfinite(captain, fullPool, usedIds) {
     }
     return best;
 }
-// 🔥 ฟังก์ชันใหม่: หาคู่แข่งที่ "หน้าช้ำน้อยที่สุด" (Conflict Score ต่ำสุด)
+
+// ค้นหาฟังก์ชันเดิม แล้วทับด้วยอันนี้
 function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
     let best = null;
     let minScore = Infinity;
@@ -844,21 +1006,34 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
     for (let i = 0; i < fullPool.length; i++) {
         const c = fullPool[i];
        
-        // ข้ามตัวเอง, คนที่เลือกไปแล้ว, หรือคนที่มี Booking (เพราะระบบนี้สำหรับคนมาเดี่ยว)
         if (usedIds.has(c.id) || c.bookingId) continue;
        
-        // คำนวณความ "หน้าซ้ำ": เคยเจอกับ 'ใครก็ได้' ในทีมที่เลือกไปแล้วหรือยัง?
+        // คำนวณความ "หน้าซ้ำ"
         let conflictScore = 0;
         currentTeam.forEach(member => {
             const opCount = getOpponentCount(member.id, c.id);
-            // ถ้าเคยเจอกันมาแล้ว 2 ครั้งขึ้นไป ปรับโทษหนัก (100ล้าน) เพื่อผลักไปท้ายๆ
-            // ถ้า 0-1 ครั้ง ปรับ 1ล้าน (ยังพอรับได้ถ้าคิวว่าง)
             conflictScore += (opCount >= 2) ? 100000000 : (opCount * 1000000);
         });
 
-        // คะแนนรวม = คะแนนหน้าซ้ำ + ลำดับคิว (i)
-        // (ลำดับคิวมีค่าน้อยมาก ทำให้ถ้าหน้าซ้ำเท่ากัน จะเลือกคนมาก่อนเสมอ)
-        const totalScore = conflictScore + i;
+        // ✨ RANKED LOGIC: เช็คว่า "ศัตรู" ฝีมือห่างกับ "ทีมเรา" ไหม
+        let rankPenalty = 0;
+        if (isRankedMode) {
+            const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+            
+            // วนลูปเช็คกับทุกคนในทีมปัจจุบัน
+            let maxDiff = 0;
+            currentTeam.forEach(member => {
+                const mScore = RANK_SCORES[member.level || 'BG'] || 1;
+                const diff = Math.abs(mScore - cScore);
+                if (diff > maxDiff) maxDiff = diff;
+            });
+
+            // ถ้าในทีมมีคนยศห่างกับคนนี้มากเกินไป ให้ลงโทษหนักๆ
+            if (maxDiff === 1) rankPenalty = 5000000;
+            else if (maxDiff >= 2) rankPenalty = 500000000;
+        }
+
+        const totalScore = conflictScore + rankPenalty + i;
        
         if (totalScore < minScore) {
             minScore = totalScore;
@@ -992,8 +1167,6 @@ function sendToQueue(playerId) {
    if(pl) { 
         pl.status = 'waiting'; 
         pl.joinedQueueAt = Date.now(); 
-        pl.bookingId = null; 
-        pl.bookingTeam = null;
         pl.sessionGames = 0; 
     } }
 // เปลี่ยนเป็น Modern Syntax (Arrow Function)
@@ -1695,36 +1868,7 @@ function copyShareLink() {
     alert("ก๊อปปี้แล้ว! เอาไปแปะในไลน์โลด");
 }
 // 🔥 ฟังก์ชันใหม่: หาคู่แข่งที่ "หน้าช้ำน้อยที่สุด" (Conflict Score ต่ำสุด)
-function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
-    let best = null;
-    let minScore = Infinity;
-   
-    for (let i = 0; i < fullPool.length; i++) {
-        const c = fullPool[i];
-       
-        // ข้ามตัวเอง, คนที่เลือกไปแล้ว, หรือคนที่มี Booking (ระบบนี้สำหรับคนมาเดี่ยว)
-        if (usedIds.has(c.id) || c.bookingId) continue;
-       
-        // คำนวณความ "หน้าซ้ำ": เคยเจอกับ 'ใครก็ได้' ในทีมที่เลือกไปแล้วหรือยัง?
-        let conflictScore = 0;
-        currentTeam.forEach(member => {
-            const opCount = getOpponentCount(member.id, c.id);
-            // ถ้าเคยเจอกันมาแล้ว 2 ครั้งขึ้นไป ปรับโทษหนัก (100ล้าน) ผลักไปท้ายแถว
-            // ถ้า 0-1 ครั้ง ปรับ 1ล้าน (ยังพอรับได้ถ้าคิวว่าง)
-            conflictScore += (opCount >= 2) ? 100000000 : (opCount * 1000000);
-        });
 
-        // คะแนนรวม = คะแนนหน้าซ้ำ + ลำดับคิว (i)
-        // (ลำดับคิวมีค่าน้อยมาก ทำให้ถ้าหน้าซ้ำเท่ากัน จะเลือกคนมาก่อนเสมอ)
-        const totalScore = conflictScore + i;
-       
-        if (totalScore < minScore) {
-            minScore = totalScore;
-            best = c;
-        }
-    }
-    return best;
-}
 </script>
 
 
