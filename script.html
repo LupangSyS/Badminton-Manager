@@ -22,7 +22,8 @@ function saveData() {
         matchLogs,
         bookingCounter,
         gameRule: document.getElementById('game-rule').value,
-        rankedMode: isRankedMode // ✨ บันทึกค่านี้
+        rankedMode: isRankedMode, // ✨ บันทึกค่านี้
+        completedGameTimes
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -679,32 +680,33 @@ const autoFillCourts = () => {
 };
 
 
-// ค้นหา fillCourtSmart ตัวเดิม แล้วทับด้วยตัวนี้
+// ค้นหา fillCourtSmart แล้วแก้เป็นตัวนี้
 const fillCourtSmart = (courtIdx) => {
     const court = courts[courtIdx];
-    
-    // หาคนที่ค้างในสนาม (Winner Stay)
     const existingPlayers = court.players.filter(p => p !== null && p !== undefined);
     const needed = 4 - existingPlayers.length;
 
-    // ✨ 1. จำไว้ก่อนว่าใครคือ "หัวแถว" ตัวจริง
+    // เช็คหัวแถวเพื่อเก็บสถิติ Skip (เหมือนเดิม)
     const waiting = players.filter(p => p.status === 'waiting' && !p.isResting && !p.bookingId)
                            .sort((a, b) => a.joinedQueueAt - b.joinedQueueAt);
     const headOfQueue = waiting.length > 0 ? waiting[0] : null;
 
-    // เรียกแก๊งค์สุ่ม
-    const candidates = getSmartDraft(needed, new Set(), existingPlayers);
+    // 🔍 รอบที่ 1: หาแบบเคร่งครัด (Strict Mode)
+    let candidates = getSmartDraft(needed, new Set(), existingPlayers, false); // false = ไม่ Force
+
+    // ⚠️ รอบที่ 2: ถ้าหาไม่ได้ ให้หาแบบหยวนๆ (Force Mode)
+    if (candidates.length === 0 && waiting.length >= needed) {
+        console.log("⚠️ หาแบบตรงสเปคไม่ได้... กำลังเปิดโหมดหยวนๆ (Force Mode)");
+        candidates = getSmartDraft(needed, new Set(), existingPlayers, true); // true = Force
+    }
    
     if (candidates.length > 0) {
-        // ✨ 2. เช็คว่าหัวแถวได้ลงไหม?
+        // เช็ค Skip Count
         if (headOfQueue) {
             const isHeadPicked = candidates.some(c => c.id === headOfQueue.id);
             if (!isHeadPicked) {
-                // ถ้าหัวแถวไม่ได้ลง -> บวกแต้มความน่าสงสาร
                 headOfQueue.skipCount = (headOfQueue.skipCount || 0) + 1;
-                console.log(`😭 ${headOfQueue.name} โดนข้าม! (Skip: ${headOfQueue.skipCount})`);
             } else {
-                // ถ้าได้ลง -> ล้างแต้มทิ้ง
                 headOfQueue.skipCount = 0;
             }
         }
@@ -719,13 +721,10 @@ const fillCourtSmart = (courtIdx) => {
         });
         renderCourts();
     } else {
-        // ถ้าหาใครไม่ได้เลย ก็ถือว่าหัวแถวโดนข้ามเหมือนกัน
-        if (headOfQueue) {
-            headOfQueue.skipCount = (headOfQueue.skipCount || 0) + 1;
-        }
-        alert('⚠️ หาคนไม่ได้! (อาจเพราะคนไม่พอ หรือติดเงื่อนไข Rank/คู่ซ้ำ)');
+        // ถ้า Force แล้วยังไม่ได้ แปลว่าคนไม่พอจริงๆ (น้อยกว่า 4 คน)
+        alert('❌ คนในคิวไม่พอครับ (ต้องการ ' + needed + ' คน)');
     }
-    saveData(); // บันทึกแต้ม Skip ลงเครื่อง
+    saveData();
 };
 
 
@@ -793,35 +792,32 @@ const fillCourtQueue = (courtIdx) => {
 // ฟังก์ชันดึงคนลงสนาม (Smart Draft)
 // แก้หัวฟังก์ชันรับ parameter เพิ่ม และเพิ่ม Logic เช็ค Rank
 // ค้นหา getSmartDraft ตัวเดิม แล้วทับด้วยตัวนี้
-function getSmartDraft(count, excludeIds = new Set(), existingPlayers = []) {
+// แก้หัวฟังก์ชันรับ isForce (ค่า Default = false)
+function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isForce = false) {
     let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
 
     if (pool.length === 0) return [];
 
-    // ✨ LOGIC PITY: เช็คหัวแถวก่อนเลย
-    const head = pool[0];
-    
-    // ถ้าหัวแถวเคยโดนข้ามมาแล้ว (skipCount > 0) -> บังคับเป็นกัปตัน (Force Pick)
-    if (head && head.skipCount > 0) {
-        let targetScore = null;
-        
-        // คำนวณพลังรวมของคู่แข่งในสนาม (ถ้ามี) เพื่อเอาไปหาคู่ที่สมดุล
-        if (existingPlayers.length > 0) {
-            targetScore = existingPlayers.reduce((sum, p) => sum + (RANK_SCORES[p.level||'BG']||1), 0);
-        }
+    // ✨ คำนวณพลังคู่แข่งรอไว้เลย (ถ้ามี)
+    let targetScore = null;
+    if (existingPlayers.length > 0) {
+        targetScore = existingPlayers.reduce((sum, p) => sum + (RANK_SCORES[p.level||'BG']||1), 0);
+    }
 
-        // เรียก tryBuildTeam แบบเปิดโหมด Pity (ส่ง isPity=true, targetScore ไป)
-        let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore);
-        
+    // Pity Logic (สำหรับคนรอนานแบบน่าสงสาร)
+    const head = pool[0];
+    if (head && head.skipCount > 0 && !isForce) {
+        let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore, false);
         if (team.length === count) return team; 
     }
 
-    // --- (ข้างล่างนี้คือ Logic ปกติ ไม่ได้แก้) ---
+    // Normal & Force Logic
     for (let i = 0; i < pool.length; i++) {
         let captain = pool[i];
         
-        if (isRankedMode && existingPlayers.length > 0) {
+        // ถ้าไม่ใช่ Force -> เช็ค Rank กัปตันก่อน (เหมือนเดิม)
+        if (!isForce && isRankedMode && existingPlayers.length > 0) {
              const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
              let isCompatible = true;
              for(let ex of existingPlayers) {
@@ -831,10 +827,11 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = []) {
              if (!isCompatible) continue; 
         }
         
-        let team = tryBuildTeam(captain, pool, count, existingPlayers); 
+        // ✨ ส่ง targetScore เข้าไปให้ tryBuildTeam ด้วย (แม้จะเป็น Force Mode ก็ต้องใช้!)
+        let team = tryBuildTeam(captain, pool, count, existingPlayers, false, targetScore, isForce); 
         
         if (team.length === count) {
-            if (count === 4) return autoBalanceTeam(team);
+            if (count === 4 && !isForce) return autoBalanceTeam(team);
             return team;
         }
     }
@@ -855,11 +852,11 @@ function isRankCompatible(player, targetPlayers) {
 
 // ✨ แก้ไข: ฟังก์ชันจัดทีม (ให้ฉลาดเลือกคู่แข่งด้วย ไม่ใช่หยิบตามคิวอย่างเดียว)
 // แก้หัวฟังก์ชันรับ parameter เพิ่ม: isPity, targetScore
-function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], isPity = false, targetScore = null) {
+// รับ parameter isForce เพิ่มท้ายสุด
+function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], isPity = false, targetScore = null, isForce = false) {
     let selected = [];
     let usedIds = new Set();
 
-    // 1. ใส่กัปตัน
     if (captain.bookingId) {
         const group = currentPool.filter(x => x.bookingId === captain.bookingId);
         if (group.length > targetCount) return [];
@@ -870,18 +867,15 @@ function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], i
         usedIds.add(captain.id);
     }
 
-    // 2. หาคนเพิ่ม
     while (selected.length < targetCount) {
         let nextPlayer = null;
        
         if (selected.length % 2 !== 0 && !selected[selected.length-1].bookingId) {
-            // หาคู่หู
             let currentSolo = selected[selected.length - 1];
-            // ✨ ส่ง isPity และ targetScore ไปให้ฟังก์ชันหาคู่
-            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds, existingPlayers, isPity, targetScore);
+            // ✨ ส่ง isForce ไปด้วย
+            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds, existingPlayers, isPity, targetScore, isForce);
         } 
         else {
-            // หาคู่แข่ง (ถ้า isPity=true ให้ใช้ Logic ปกติไปเลย เพราะเราสนใจแค่คู่หูให้สมดุล)
             const effectiveTeam = [...selected, ...existingPlayers];
             nextPlayer = findBestOpponentInfinite(effectiveTeam, currentPool, usedIds);
         }
@@ -898,7 +892,7 @@ function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], i
 
 // แก้ฟังก์ชันหาคู่หู ให้รับ rankCheckList (คือคนในสนาม)
 // แก้หัวฟังก์ชันรับ isPity, targetScore
-function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [], isPity = false, targetScore = null) {
+function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [], isPity = false, targetScore = null, isForce = false) {
     let best = null;
     let minScore = Infinity;
     
@@ -908,47 +902,58 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
         const c = fullPool[i];
         if (c.id === captain.id || usedIds.has(c.id) || c.bookingId) continue;
        
-        // 1. คะแนนคู่ซ้ำ (ใช้เหมือนเดิมทุกกรณี)
-        const count = getPairCount(captain.id, c.id);
-        const pairPenalty = (count >= 2) ? 999999999 : count * 1000000;
-
         let finalScore = 0;
 
-        // 🔥 กรณี PITY MODE: หาคนที่ทำให้ "ทีมเรา" สมดุลกับ "ทีมในสนาม"
-        if (isPity && targetScore !== null) {
-             const cScore = RANK_SCORES[c.level || 'BG'] || 1;
-             
-             // พลังรวมทีมเรา = กัปตัน + แคนดิเดต
-             const ourTeamSum = capScore + cScore;
-             
-             // ความห่างชั้นกับคู่แข่งในสนาม
-             const diff = Math.abs(ourTeamSum - targetScore);
-             
-             // สูตรคะแนน: (ความห่าง * 1000) + ลำดับคิว
-             // ยิ่งห่างน้อย ยิ่งดี (Priority 1)
-             // ถ้าห่างเท่ากัน ใครมาก่อนได้ก่อน (Priority 2)
-             finalScore = pairPenalty + (diff * 1000) + i;
-        } 
-        // 🛡️ กรณีปกติ (RANKED MODE)
-        else {
-            let rankPenalty = 0;
-            if (isRankedMode) {
-                const cScore = RANK_SCORES[c.level || 'BG'] || 1;
-                
-                // เช็คกับกัปตัน
-                const diffCap = Math.abs(capScore - cScore);
-                if (diffCap === 1) rankPenalty += 5000000;
-                if (diffCap >= 2) rankPenalty += 500000000;
+        // 🔥 กรณี FORCE MODE: สูตร "หยวนๆ แบบมีสมอง"
+        if (isForce) {
+            // 1. ค่าคิว (Queue Cost): ยิ่งรอนาน (i น้อย) ยิ่งดี
+            // คิดเป็นคนละ 1000 แต้ม
+            // (ใครมาทีหลัง หรือเพิ่งออก โดนบวกแต้มเยอะ ทำให้ไม่ถูกเลือก)
+            const queueCost = i * 1000; 
 
-                // เช็คกับคนในสนาม
-                for(let existing of rankCheckList) {
-                    const exScore = RANK_SCORES[existing.level || 'BG'] || 1;
-                    const diffEx = Math.abs(cScore - exScore);
-                    if (diffEx === 1) rankPenalty += 5000000;
-                    else if (diffEx >= 2) rankPenalty += 500000000;
-                }
+            // 2. ค่าสมดุล (Balance Cost): พยายามให้พลังทีม ใกล้เคียงคู่แข่ง
+            let balanceCost = 0;
+            if (targetScore !== null) {
+                const myTeamScore = capScore + (RANK_SCORES[c.level||'BG']||1);
+                const diff = Math.abs(myTeamScore - targetScore);
+                // ยอมข้ามคิวได้ 2-3 คน เพื่อแลกกับ Balance ที่ดีขึ้น 1 ขั้น
+                // 1 Level Gap = 2500 แต้ม
+                balanceCost = diff * 2500; 
             }
-            finalScore = pairPenalty + rankPenalty + i;
+
+            // 3. ค่าคู่ซ้ำ (Pair Cost): ยอมให้ซ้ำได้ แต่ถ้าเลือกได้ขอคนใหม่
+            const pairCount = getPairCount(captain.id, c.id);
+            const pairCost = pairCount * 3000; 
+
+            finalScore = queueCost + balanceCost + pairCost;
+        }
+        // 🛡️ กรณีปกติ / Pity (Logic เดิม)
+        else {
+            if (isPity && targetScore !== null) {
+                 const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+                 const ourTeamSum = capScore + cScore;
+                 const diff = Math.abs(ourTeamSum - targetScore);
+                 // Pity เน้น Balance มากกว่าคิวนิดหน่อย
+                 finalScore = (getPairCount(captain.id, c.id) * 1000000) + (diff * 1000) + i;
+            } else {
+                // Strict Mode
+                const pairPenalty = (getPairCount(captain.id, c.id) >= 2) ? 999999999 : getPairCount(captain.id, c.id) * 1000000;
+                let rankPenalty = 0;
+                if (isRankedMode) {
+                    const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+                    const diffCap = Math.abs(capScore - cScore);
+                    if (diffCap === 1) rankPenalty += 5000000;
+                    if (diffCap >= 2) rankPenalty += 500000000;
+
+                    for(let existing of rankCheckList) {
+                        const exScore = RANK_SCORES[existing.level || 'BG'] || 1;
+                        const diffEx = Math.abs(cScore - exScore);
+                        if (diffEx === 1) rankPenalty += 5000000;
+                        else if (diffEx >= 2) rankPenalty += 500000000;
+                    }
+                }
+                finalScore = pairPenalty + rankPenalty + i;
+            }
         }
        
         if (finalScore < minScore) {
