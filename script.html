@@ -1105,7 +1105,6 @@ function resolveGame(winningTeamIdx) {
                 completedGameTimes.push(durationMins);
                 if (completedGameTimes.length > 5) completedGameTimes.shift(); 
             }
-            // court.gameStartTime = null; // ❌ อย่าเพิ่งรีเซ็ตตรงนี้ เดี๋ยวข้างล่างไม่มีใช้
         }
 
         // บันทึก Log
@@ -1116,6 +1115,7 @@ function resolveGame(winningTeamIdx) {
             losers: losers.map(p=>p.name).join(', '),
             duration: formatTime(court.timer),
         });
+        
         court.gameStartTime = null; 
         renderMatchLog();
        
