@@ -13,20 +13,22 @@ function isModalOpen() {
 
 // บันทึกข้อมูลลงเครื่อง
 function saveData() {
+    // ✨ FIX: เช็คก่อนว่ามีปุ่มไหม ถ้าไม่มีใช้ค่า 'normal'
     const ruleEl = document.getElementById('game-rule');
     const ruleValue = ruleEl ? ruleEl.value : 'normal';
+
     const data = {
         players,
-        courts: courts.map(c => ({...c, interval: null})), // ไม่บันทึก interval object
+        courts: courts.map(c => ({...c, interval: null})), 
         courtCount,
         pairingHistory,
         opponentHistory,
         matchLogs,
         bookingCounter,
-        gameRule: ruleValue, // ✅ ใช้ค่าที่เช็คแล้ว
+        gameRule: ruleValue, // ✅ ปลอดภัยแล้ว
         rankedMode: isRankedMode,
-        mmrMode: isMMRMode,
-        completedGameTimes // ✨ NEW: บันทึกไปด้วย
+        mmrMode: isMMRMode, 
+        completedGameTimes 
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -1760,56 +1762,6 @@ const confirmManualAdd = (playerId) => {
     renderCourts();
 };
 
-function updateNextMatchPanel() {
-    const container = document.getElementById('next-match-list');
-    if (!container) return; // กัน Error ถ้าหาไม่เจอ
-
-    const ruleEl = document.getElementById('game-rule');
-    const rule = ruleEl ? ruleEl.value : 'normal';
-    const needed = (rule === 'winner_stay') ? 2 : 4;
-   
-    let html = '';
-    let excludeIds = new Set();
-    const matchesToShow = Math.min(courtCount, 4);
-
-    for (let i = 0; i < matchesToShow; i++) {
-        // เรียก getSmartDraft (ซึ่งจะเรียก findBestPartnerInfinite อีกที)
-        const candidates = getSmartDraft(needed, excludeIds);
-       
-        if (candidates.length < needed) {
-            if (i === 0) html += `<div style="text-align:center; width:100%; color: #ccc;">⏳ รอคนครบทีม ...</div>`;
-            break;
-        }
-
-        candidates.forEach(p => excludeIds.add(p.id));
-
-        html += `<div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); min-width: 200px;">
-            <div style="font-size:0.8em; color:#ddd; margin-bottom:5px;">📢 Match ${i + 1}</div>`;
-       
-        const createCard = (p, color) => `
-            <div style="background:white; color:#333; padding:4px 8px; margin:2px 0; border-radius:4px; border-left:4px solid ${color}; font-size:0.9em; display:flex; justify-content:space-between;">
-                <span>${p.isFastPass?'🚀':''} ${p.name}</span>
-                ${p.bookingId ? '<span style="font-size:0.8em;">🔒</span>' : ''}
-            </div>`;
-
-        if (needed === 4) {
-            html += `<div style="display:flex; gap:5px;">
-                        <div style="flex:1;">${createCard(candidates[0], '#e74c3c')}${createCard(candidates[1], '#e74c3c')}</div>
-                        <div style="display:flex; align-items:center; font-weight:bold; color:#fff; font-size:0.8em;">VS</div>
-                        <div style="flex:1;">${createCard(candidates[2], '#3498db')}${createCard(candidates[3], '#3498db')}</div>
-                     </div>`;
-        } else {
-            html += `<div style="display:flex; flex-direction:column; gap:2px;">
-                        ${createCard(candidates[0], '#f1c40f')}
-                        ${createCard(candidates[1], '#f1c40f')}
-                     </div>`;
-        }
-        html += `</div>`;
-    }
-
-    container.innerHTML = html;
-}
-
     // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท
 // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท (แก้หัวฟังก์ชันนิดนึง)
 function editCourtName(idx) {
@@ -1955,63 +1907,108 @@ function copyShareLink() {
     document.execCommand("copy");
     alert("ก๊อปปี้แล้ว! เอาไปแปะในไลน์โลด");
 }
-// 🔥 ฟังก์ชันใหม่: หาคู่แข่งที่ "หน้าช้ำน้อยที่สุด" (Conflict Score ต่ำสุด)
-// 3.1 ฟังก์ชันหาค่าเฉลี่ย (ต้องมี)
+
+
+// 1. ฟังก์ชันหาค่าเฉลี่ยเวลา
 function getAverageGameTime() {
-    if (completedGameTimes.length === 0) return DEFAULT_GAME_TIME;
+    if (!completedGameTimes || completedGameTimes.length === 0) return 15; // Default 15 นาที
     const sum = completedGameTimes.reduce((a, b) => a + b, 0);
     return Math.round(sum / completedGameTimes.length);
 }
 
-// 3.2 ฟังก์ชันคำนวณเวลารอแบบ Real-time (ตัวใหม่ล่าสุด!)
-// แก้ฟังก์ชัน getWaitTimeForQueue
+// 2. ฟังก์ชันคำนวณเวลารอเทพๆ
 function getWaitTimeForQueue(queueIndex) {
     const avgTime = getAverageGameTime(); 
     const now = Date.now();
     
+    // เช็ค Rule อย่างปลอดภัย
     const gameRuleSelect = document.getElementById('game-rule'); 
+    // ถ้าหาปุ่มไม่เจอ ให้เดาว่า Normal หรืออ่านจากคอร์ทแรกเอา
     const isWinnerStay = gameRuleSelect && (gameRuleSelect.value.includes('2') || gameRuleSelect.value.includes('stay'));
-    const spotsPerCourt = isWinnerStay ? 2 : 4;
+    const spotsPerCourt = isWinnerStay ? 2 : 4; 
 
-
-    // สร้าง Slots ว่าง
     let availableSlots = [];
-    
     courts.forEach(c => {
-        // ✨ เช็ค Rule ของแต่ละคอร์ท
-        const rule = c.rule || 'normal';
-        const isWinnerStay = (rule === 'winner_stay');
-        const spotsPerCourt = isWinnerStay ? 2 : 4; // ถ้า Winner Stay รับได้แค่ 2, ถ้า Normal รับได้ 4
+        // อ่าน Rule แยกตามคอร์ท (แม่นยำกว่า)
+        const cRule = c.rule || 'normal';
+        const cSpots = (cRule === 'winner_stay') ? 2 : 4;
 
         let freeAt = now;
         if (c.gameStartTime) {
             let expected = c.gameStartTime + (avgTime * 60000);
-            if (expected < now) expected = now + 30000;
+            if (expected < now) expected = now + 30000; 
             freeAt = expected;
         }
-        
-        // แตก Slot ตามจำนวนที่รับได้ของคอร์ทนั้นๆ
-        for (let k = 0; k < spotsPerCourt; k++) {
+        for (let k = 0; k < cSpots; k++) {
             availableSlots.push(freeAt);
         }
     });
 
     availableSlots.sort((a, b) => a - b);
 
-    // ... (ส่วนคำนวณที่เหลือเหมือนเดิมเป๊ะ) ...
     if (queueIndex < availableSlots.length) {
         const mySlotTime = availableSlots[queueIndex];
         return Math.max(0, Math.round((mySlotTime - now) / 60000));
     } else {
-        const totalCapacity = availableSlots.length;
+        const totalCapacity = availableSlots.length || 4; // กันหาร 0
         const cycles = Math.floor(queueIndex / totalCapacity);
         const remainder = queueIndex % totalCapacity;
-        const baseSlotTime = availableSlots[remainder]; 
+        const baseSlotTime = availableSlots[remainder] || now; 
         const waitMs = (baseSlotTime - now) + (cycles * avgTime * 60000);
         return Math.max(0, Math.round(waitMs / 60000));
     }
 }
 
+// 3. ฟังก์ชันอัปเดตแผง Match หน้าบน
+function updateNextMatchPanel() {
+    const container = document.getElementById('next-match-list');
+    if (!container) return; 
+
+    // เช็ค Rule ปลอดภัย
+    const ruleEl = document.getElementById('game-rule');
+    const rule = ruleEl ? ruleEl.value : 'normal';
+    const needed = (rule === 'winner_stay') ? 2 : 4;
+   
+    let html = '';
+    let excludeIds = new Set();
+    const matchesToShow = Math.min(courtCount, 4);
+
+    for (let i = 0; i < matchesToShow; i++) {
+        // เรียก getSmartDraft
+        const candidates = getSmartDraft(needed, excludeIds);
+       
+        if (candidates.length < needed) {
+            if (i === 0) html += `<div style="text-align:center; width:100%; color: #ccc;">⏳ รอคนครบทีม ...</div>`;
+            break;
+        }
+
+        candidates.forEach(p => excludeIds.add(p.id));
+
+        html += `<div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); min-width: 200px;">
+            <div style="font-size:0.8em; color:#ddd; margin-bottom:5px;">📢 Match ${i + 1}</div>`;
+       
+        const createCard = (p, color) => `
+            <div style="background:white; color:#333; padding:4px 8px; margin:2px 0; border-radius:4px; border-left:4px solid ${color}; font-size:0.9em; display:flex; justify-content:space-between;">
+                <span>${p.isFastPass?'🚀':''} ${p.name}</span>
+                ${p.bookingId ? '<span style="font-size:0.8em;">🔒</span>' : ''}
+            </div>`;
+
+        if (needed === 4) {
+            html += `<div style="display:flex; gap:5px;">
+                        <div style="flex:1;">${createCard(candidates[0], '#e74c3c')}${createCard(candidates[1], '#e74c3c')}</div>
+                        <div style="display:flex; align-items:center; font-weight:bold; color:#fff; font-size:0.8em;">VS</div>
+                        <div style="flex:1;">${createCard(candidates[2], '#3498db')}${createCard(candidates[3], '#3498db')}</div>
+                     </div>`;
+        } else {
+            html += `<div style="display:flex; flex-direction:column; gap:2px;">
+                        ${createCard(candidates[0], '#f1c40f')}
+                        ${createCard(candidates[1], '#f1c40f')}
+                     </div>`;
+        }
+        html += `</div>`;
+    }
+    container.innerHTML = html;
+}
 
 </script>
 
