@@ -25,7 +25,7 @@ function saveData() {
         opponentHistory,
         matchLogs,
         bookingCounter,
-        gameRule: ruleValue, // ✅ ปลอดภัยแล้ว
+        gameRule: ruleValue, // ✅ ปลอดภัยแล้ว ไม่พังแน่นอน
         rankedMode: isRankedMode,
         mmrMode: isMMRMode, 
         completedGameTimes 
@@ -960,14 +960,13 @@ function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], i
     return selected;
 }
 
-// แก้ฟังก์ชันหาคู่หู ให้รับ rankCheckList (คือคนในสนาม)
-// แก้หัวฟังก์ชันรับ isPity, targetScore
+// ค้นหา findBestPartnerInfinite แล้วทับด้วยอันนี้ (สังเกตตัวท้ายสุด targetMMR)
 function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [], isPity = false, targetScore = null, isForce = false, targetMMR = null) {
     let best = null;
     let minScore = Infinity;
     
     const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
-    const capMMR = captain.mmr || 0; // ✨ MMR กัปตัน
+    const capMMR = captain.mmr || 0; 
    
     for (let i = 0; i < fullPool.length; i++) {
         const c = fullPool[i];
@@ -975,65 +974,41 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
        
         let finalScore = 0;
 
-// 🔥 LOGIC MMR MODE
         if (isMMRMode && !isForce) {
-            // 1. Queue Cost: ให้เครดิตคนรอนานนิดนึง (แต่ไม่มากเท่า Force)
             const queueCost = i * 10; 
-
-            // 2. MMR Balance Cost:
             let mmrCost = 0;
             const partnerMMR = c.mmr || 0;
 
             if (targetMMR !== null) {
-                // กรณีมีเจ้าที่: (MMR กัปตัน + MMR เพื่อน) ควรใกล้เคียง (MMR เจ้าที่)
                 const ourTeamMMR = capMMR + partnerMMR;
                 const diff = Math.abs(ourTeamMMR - targetMMR);
-                mmrCost = diff * 100; // น้ำหนักความห่าง MMR
+                mmrCost = diff * 100;
             } else {
-                // กรณีสนามว่าง: หาคนที่ MMR ใกล้เคียงกับกัปตัน (จับคู่สมดุล)
                 const diff = Math.abs(capMMR - partnerMMR);
                 mmrCost = diff * 100;
             }
-
-            // 3. Pair Repeat Cost (ยังคง Logic เดิม: พยายามไม่คู่ซ้ำ)
             const pairCount = getPairCount(captain.id, c.id);
-            const pairCost = pairCount * 1000000; // ปรับโทษหนักๆ ให้ไปหาคนอื่นก่อน
-
+            const pairCost = pairCount * 1000000; 
             finalScore = queueCost + mmrCost + pairCost;
         }
-        // 🔥 กรณี FORCE MODE: สูตร "หยวนๆ แบบมีสมอง"
-       else if (isForce) {
-            // 1. ค่าคิว (Queue Cost): ยิ่งรอนาน (i น้อย) ยิ่งดี
-            // คิดเป็นคนละ 1000 แต้ม
-            // (ใครมาทีหลัง หรือเพิ่งออก โดนบวกแต้มเยอะ ทำให้ไม่ถูกเลือก)
-            const queueCost = i * 1000; 
-
-            // 2. ค่าสมดุล (Balance Cost): พยายามให้พลังทีม ใกล้เคียงคู่แข่ง
-            let balanceCost = 0;
-            if (targetScore !== null) {
+        else if (isForce) {
+             const queueCost = i * 1000; 
+             let balanceCost = 0;
+             if (targetScore !== null) {
                 const myTeamScore = capScore + (RANK_SCORES[c.level||'BG']||1);
                 const diff = Math.abs(myTeamScore - targetScore);
-                // ยอมข้ามคิวได้ 2-3 คน เพื่อแลกกับ Balance ที่ดีขึ้น 1 ขั้น
-                // 1 Level Gap = 2500 แต้ม
                 balanceCost = diff * 2500; 
-            }
-
-            // 3. ค่าคู่ซ้ำ (Pair Cost): ยอมให้ซ้ำได้ แต่ถ้าเลือกได้ขอคนใหม่
-            const pairCount = getPairCount(captain.id, c.id);
-            const pairCost = pairCount * 3000; 
-
-            finalScore = queueCost + balanceCost + pairCost;
+             }
+             const pairCost = getPairCount(captain.id, c.id) * 3000; 
+             finalScore = queueCost + balanceCost + pairCost;
         }
-        // 🛡️ กรณีปกติ / Pity (Logic เดิม)
         else {
-            if (isPity && targetScore !== null) {
+             if (isPity && targetScore !== null) {
                  const cScore = RANK_SCORES[c.level || 'BG'] || 1;
                  const ourTeamSum = capScore + cScore;
                  const diff = Math.abs(ourTeamSum - targetScore);
-                 // Pity เน้น Balance มากกว่าคิวนิดหน่อย
                  finalScore = (getPairCount(captain.id, c.id) * 1000000) + (diff * 1000) + i;
             } else {
-                // Strict Mode
                 const pairPenalty = (getPairCount(captain.id, c.id) >= 2) ? 999999999 : getPairCount(captain.id, c.id) * 1000000;
                 let rankPenalty = 0;
                 if (isRankedMode) {
@@ -1041,7 +1016,6 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
                     const diffCap = Math.abs(capScore - cScore);
                     if (diffCap === 1) rankPenalty += 5000000;
                     if (diffCap >= 2) rankPenalty += 500000000;
-
                     for(let existing of rankCheckList) {
                         const exScore = RANK_SCORES[existing.level || 'BG'] || 1;
                         const diffEx = Math.abs(cScore - exScore);
@@ -1064,8 +1038,7 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
 
 
 
-
-// ค้นหาฟังก์ชันเดิม แล้วทับด้วยอันนี้
+// ค้นหา findBestOpponentInfinite แล้วทับด้วยอันนี้
 function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = null) {
     let best = null;
     let minScore = Infinity;
@@ -1075,7 +1048,6 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = nu
        
         if (usedIds.has(c.id) || c.bookingId) continue;
        
-        // คำนวณความ "หน้าซ้ำ"
         let conflictScore = 0;
         currentTeam.forEach(member => {
             const opCount = getOpponentCount(member.id, c.id);
@@ -1083,36 +1055,27 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = nu
         });
         let extraScore = 0;
 
-        // 🔥 MMR Mode Logic
         if (isMMRMode) {
-            // ถ้ามีเป้าหมาย (Team 1 MMR) -> หาคนแรกของ Team 2 ให้ (MMR * 2) ใกล้เคียง Team 1
-            // (สมมติว่าคู่หูเขาจะมี MMR ใกล้ๆ กัน)
             if (targetMMR !== null) {
                 const myMMR = c.mmr || 0;
-                // Heuristic: ลองกะว่าคู่หูเขาจะมี MMR เท่าตัวเขาเอง
                 const projectedTeam2MMR = myMMR * 2; 
                 const diff = Math.abs(projectedTeam2MMR - targetMMR);
                 extraScore = diff * 100;
             }
         }
-        
-       else if (isRankedMode) {
+        else if (isRankedMode) {
             const cScore = RANK_SCORES[c.level || 'BG'] || 1;
-            
-            // วนลูปเช็คกับทุกคนในทีมปัจจุบัน
             let maxDiff = 0;
             currentTeam.forEach(member => {
                 const mScore = RANK_SCORES[member.level || 'BG'] || 1;
                 const diff = Math.abs(mScore - cScore);
                 if (diff > maxDiff) maxDiff = diff;
             });
-
-            // ถ้าในทีมมีคนยศห่างกับคนนี้มากเกินไป ให้ลงโทษหนักๆ
-            if (maxDiff === 1) rankPenalty = 5000000;
-            else if (maxDiff >= 2) rankPenalty = 500000000;
+            if (maxDiff === 1) extraScore = 5000000;
+            else if (maxDiff >= 2) extraScore = 500000000;
         }
 
-        const totalScore = conflictScore + rankPenalty + i;
+        const totalScore = conflictScore + extraScore + i;
        
         if (totalScore < minScore) {
             minScore = totalScore;
@@ -1959,14 +1922,14 @@ function getWaitTimeForQueue(queueIndex) {
     }
 }
 
-// 3. ฟังก์ชันอัปเดตแผง Match หน้าบน
 function updateNextMatchPanel() {
     const container = document.getElementById('next-match-list');
-    if (!container) return; 
+    if (!container) return;
 
-    // เช็ค Rule ปลอดภัย
+    // ✨ FIX: ใส่ค่า Default กันพัง
     const ruleEl = document.getElementById('game-rule');
     const rule = ruleEl ? ruleEl.value : 'normal';
+    
     const needed = (rule === 'winner_stay') ? 2 : 4;
    
     let html = '';
@@ -1974,14 +1937,11 @@ function updateNextMatchPanel() {
     const matchesToShow = Math.min(courtCount, 4);
 
     for (let i = 0; i < matchesToShow; i++) {
-        // เรียก getSmartDraft
         const candidates = getSmartDraft(needed, excludeIds);
-       
         if (candidates.length < needed) {
             if (i === 0) html += `<div style="text-align:center; width:100%; color: #ccc;">⏳ รอคนครบทีม ...</div>`;
             break;
         }
-
         candidates.forEach(p => excludeIds.add(p.id));
 
         html += `<div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); min-width: 200px;">
