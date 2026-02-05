@@ -13,6 +13,8 @@ function isModalOpen() {
 
 // บันทึกข้อมูลลงเครื่อง
 function saveData() {
+    const ruleEl = document.getElementById('game-rule');
+    const ruleValue = ruleEl ? ruleEl.value : 'normal';
     const data = {
         players,
         courts: courts.map(c => ({...c, interval: null})), // ไม่บันทึก interval object
@@ -21,9 +23,9 @@ function saveData() {
         opponentHistory,
         matchLogs,
         bookingCounter,
-        gameRule: document.getElementById('game-rule').value,
-        rankedMode: isRankedMode, // ✨ บันทึกค่านี้
-        mmrMode: isMMRMode, // ✨ บันทึกสถานะปุ่ม
+        gameRule: ruleValue, // ✅ ใช้ค่าที่เช็คแล้ว
+        rankedMode: isRankedMode,
+        mmrMode: isMMRMode,
         completedGameTimes // ✨ NEW: บันทึกไปด้วย
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -958,7 +960,7 @@ function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], i
 
 // แก้ฟังก์ชันหาคู่หู ให้รับ rankCheckList (คือคนในสนาม)
 // แก้หัวฟังก์ชันรับ isPity, targetScore
-function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [], isPity = false, targetScore = null, isForce = false) {
+function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [], isPity = false, targetScore = null, isForce = false, targetMMR = null) {
     let best = null;
     let minScore = Infinity;
     
@@ -1062,7 +1064,7 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
 
 
 // ค้นหาฟังก์ชันเดิม แล้วทับด้วยอันนี้
-function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
+function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = null) {
     let best = null;
     let minScore = Infinity;
    
@@ -1758,15 +1760,12 @@ const confirmManualAdd = (playerId) => {
     renderCourts();
 };
 
-// ✨ NEW: อัปเดตพาเนลคู่ถัดไป (Next Match) - แบบโชว์หลายคู่
-// ค้นหาฟังก์ชัน updateNextMatchPanel แล้วทับด้วยอันนี้
 function updateNextMatchPanel() {
     const container = document.getElementById('next-match-list');
-    
-    // ✨ FIX: เช็คก่อนว่ามี Dropdown ไหม ถ้าไม่มีให้ใช้ 'normal' กันตาย
+    if (!container) return; // กัน Error ถ้าหาไม่เจอ
+
     const ruleEl = document.getElementById('game-rule');
     const rule = ruleEl ? ruleEl.value : 'normal';
-    
     const needed = (rule === 'winner_stay') ? 2 : 4;
    
     let html = '';
@@ -1774,11 +1773,14 @@ function updateNextMatchPanel() {
     const matchesToShow = Math.min(courtCount, 4);
 
     for (let i = 0; i < matchesToShow; i++) {
+        // เรียก getSmartDraft (ซึ่งจะเรียก findBestPartnerInfinite อีกที)
         const candidates = getSmartDraft(needed, excludeIds);
+       
         if (candidates.length < needed) {
             if (i === 0) html += `<div style="text-align:center; width:100%; color: #ccc;">⏳ รอคนครบทีม ...</div>`;
             break;
         }
+
         candidates.forEach(p => excludeIds.add(p.id));
 
         html += `<div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); min-width: 200px;">
@@ -1804,9 +1806,9 @@ function updateNextMatchPanel() {
         }
         html += `</div>`;
     }
+
     container.innerHTML = html;
 }
-
 
     // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท
 // ✨ NEW: ฟังก์ชันเปลี่ยนชื่อคอร์ท (แก้หัวฟังก์ชันนิดนึง)
