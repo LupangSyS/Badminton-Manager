@@ -1037,8 +1037,7 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
 
 
 
-
-// ค้นหา findBestOpponentInfinite แล้วทับด้วยอันนี้
+// ✅ แก้ไข: เพิ่ม targetMMR และประกาศตัวแปร rankPenalty ให้ถูกต้อง
 function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = null) {
     let best = null;
     let minScore = Infinity;
@@ -1048,13 +1047,17 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = nu
        
         if (usedIds.has(c.id) || c.bookingId) continue;
        
+        // คำนวณความ "หน้าซ้ำ"
         let conflictScore = 0;
         currentTeam.forEach(member => {
             const opCount = getOpponentCount(member.id, c.id);
             conflictScore += (opCount >= 2) ? 100000000 : (opCount * 1000000);
         });
-        let extraScore = 0;
 
+        let extraScore = 0;
+        let rankPenalty = 0; // ✨ FIX: ประกาศตัวแปรนี้ไว้ตรงนี้ กัน Crash!
+
+        // 🔥 MMR Mode Logic
         if (isMMRMode) {
             if (targetMMR !== null) {
                 const myMMR = c.mmr || 0;
@@ -1065,17 +1068,21 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = nu
         }
         else if (isRankedMode) {
             const cScore = RANK_SCORES[c.level || 'BG'] || 1;
+            
             let maxDiff = 0;
             currentTeam.forEach(member => {
                 const mScore = RANK_SCORES[member.level || 'BG'] || 1;
                 const diff = Math.abs(mScore - cScore);
                 if (diff > maxDiff) maxDiff = diff;
             });
-            if (maxDiff === 1) extraScore = 5000000;
-            else if (maxDiff >= 2) extraScore = 500000000;
+
+            // ✨ FIX: ให้ค่า rankPenalty ที่ประกาศไว้ข้างบน
+            if (maxDiff === 1) rankPenalty = 5000000;
+            else if (maxDiff >= 2) rankPenalty = 500000000;
         }
 
-        const totalScore = conflictScore + extraScore + i;
+        // ✨ FIX: ตอนนี้ rankPenalty มีค่าแล้ว (0 หรือค่าปรับ) ไม่ Error แล้ว
+        const totalScore = conflictScore + extraScore + rankPenalty + i;
        
         if (totalScore < minScore) {
             minScore = totalScore;
