@@ -1488,24 +1488,6 @@ function updateQueueDisplay() {
     document.getElementById('queue-count').innerText = waiting.length;
 
 
-    // --- 🧮 LOGIC คำนวณเวลาแบบ Real-time ---
-    const rule = document.getElementById('game-rule').value;
-    const playersOutPerGame = (rule === 'winner_stay') ? 2 : 4;
-    const avgGameTime = 15;
-
-
-    let availableSlots = [];
-    courts.forEach(c => {
-        let remainingMins = 0;
-        if (c.state === 'playing') {
-            const playedMins = Math.floor(c.timer / 60);
-            remainingMins = Math.max(0, avgGameTime - playedMins);
-        }
-        for (let i = 0; i < playersOutPerGame; i++) availableSlots.push(remainingMins);
-    });
-    availableSlots.sort((a, b) => a - b);
-    const totalCapacity = availableSlots.length;
-
 
     list.innerHTML = waiting.map((p, index) => {
         // ✨ NEW: เรียกใช้ฟังก์ชันคำนวณเทพ! (ลบ Logic เดิมทิ้งให้หมด)
