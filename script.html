@@ -344,7 +344,8 @@ function toggleMMRMode() {
     
     // ถ้าเปิด MMR ให้ปิด Rank อัตโนมัติ (เพื่อไม่ให้ตีกัน)
     if (isMMRMode) {
-        document.getElementById('ranked-mode-toggle').checked = false;
+        const rankCB = document.getElementById('ranked-mode-toggle');
+        if(rankCB) rankCB.checked = false;
         isRankedMode = false;
         alert('⚖️ เปิดโหมด MMR! \nระบบจะคำนวณความสมดุลจากแต้ม แพ้/ชนะ \n(กัปตัน = คนรอนานสุดเสมอ)');
     } else {
@@ -1758,10 +1759,11 @@ const confirmManualAdd = (playerId) => {
 };
 
 // ✨ NEW: อัปเดตพาเนลคู่ถัดไป (Next Match) - แบบโชว์หลายคู่
+// ค้นหาฟังก์ชัน updateNextMatchPanel แล้วทับด้วยอันนี้
 function updateNextMatchPanel() {
     const container = document.getElementById('next-match-list');
     
-    // ✨ แก้ตรงนี้: ถ้าหา Dropdown ไม่เจอ ให้ใช้ค่า Default เป็น 'normal'
+    // ✨ FIX: เช็คก่อนว่ามี Dropdown ไหม ถ้าไม่มีให้ใช้ 'normal' กันตาย
     const ruleEl = document.getElementById('game-rule');
     const rule = ruleEl ? ruleEl.value : 'normal';
     
@@ -1769,17 +1771,14 @@ function updateNextMatchPanel() {
    
     let html = '';
     let excludeIds = new Set();
-   
     const matchesToShow = Math.min(courtCount, 4);
 
     for (let i = 0; i < matchesToShow; i++) {
         const candidates = getSmartDraft(needed, excludeIds);
-       
         if (candidates.length < needed) {
             if (i === 0) html += `<div style="text-align:center; width:100%; color: #ccc;">⏳ รอคนครบทีม ...</div>`;
             break;
         }
-
         candidates.forEach(p => excludeIds.add(p.id));
 
         html += `<div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); min-width: 200px;">
@@ -1805,7 +1804,6 @@ function updateNextMatchPanel() {
         }
         html += `</div>`;
     }
-
     container.innerHTML = html;
 }
 
