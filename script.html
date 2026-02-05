@@ -57,6 +57,7 @@ function loadData() {
         if (data.courts) {
             courts = data.courts.map((c, index) => { // ✨ เพิ่ม index
                 c.interval = null;
+                if (!c.rule) c.rule = 'normal'; // ✨ เพิ่มบรรทัดนี้กันเหนียว
                
                 // ⏰ ปลุกนาฬิกา: ถ้าสถานะคือ "เล่นอยู่" ให้สั่งเดินเวลาต่อทันที!
                 if (c.state === 'playing') {
@@ -492,6 +493,12 @@ function updateCourts(change) {
     renderCourts();
 }
 
+function setCourtRule(courtIdx, newRule) {
+    courts[courtIdx].rule = newRule;
+    renderCourts();
+    updateQueueDisplay(); // อัปเดตเวลารอใหม่ด้วย
+    saveData();
+}
 
 function renderCourts() {
     const container = document.getElementById('courts-container');
@@ -499,11 +506,12 @@ function renderCourts() {
     // เติมคอร์ทให้ครบตามจำนวน
     if (courts.length < courtCount) {
         for (let i = courts.length; i < courtCount; i++) {
-            courts.push({ id: i, players: [], state: 'empty', timer: 0, interval: null, isOpened: false, autoStartTarget: null });
+            // ✨ Default Rule = 'normal' (ออกหมด)
+            courts.push({ id: i, players: [], state: 'empty', timer: 0, interval: null, isOpened: false, autoStartTarget: null, rule: 'normal' });
         }
     } else if (courts.length > courtCount) {
         const removed = courts.pop();
-            if (removed.players.length > 0) {
+        if (removed.players.length > 0) {
             removed.players.forEach(p => {
                 const pl = players.find(x => x.id === p.id);
                 if(pl) { pl.status = 'waiting'; pl.joinedQueueAt = Date.now(); pl.sessionGames = 0; }
@@ -514,6 +522,9 @@ function renderCourts() {
     container.innerHTML = '';
    
     courts.forEach((court, index) => {
+        // ✨ กันเหนียว: ถ้าข้อมูลเก่าไม่มี rule ให้ใส่ default
+        if (!court.rule) court.rule = 'normal';
+
         let overlayHTML = '';
         if (court.state === 'post_game') {
             overlayHTML = `
@@ -530,9 +541,15 @@ function renderCourts() {
             `;
         }
        
-        // ✨ Logic ชื่อคอร์ท
         const displayName = court.customName || `#${index + 1}`;
 
+        // ✨ สร้าง Dropdown เลือกโหมด
+        const ruleSelectHTML = `
+            <select class="court-rule-select" onchange="setCourtRule(${index}, this.value)" onclick="event.stopPropagation()">
+                <option value="normal" ${court.rule === 'normal' ? 'selected' : ''}>⛔ ออกหมด</option>
+                <option value="winner_stay" ${court.rule === 'winner_stay' ? 'selected' : ''}>👑 ครบ 2 เด้ง</option>
+            </select>
+        `;
 
         const courtHTML = `
             <div class="court" id="court-${index}">
@@ -544,7 +561,7 @@ function renderCourts() {
                     <span onclick="editCourtName(${index})" style="cursor:pointer; display:flex; align-items:center; gap:5px;" title="จิ้มเพื่อเปลี่ยนชื่อ">
                         ${displayName} <span style="font-size:0.8em; opacity:0.6;">✏️</span>
                     </span>
-                    <small>${getRuleLabel()}</small>
+                    ${ruleSelectHTML}
                 </div>
                
                 ${overlayHTML}
@@ -574,16 +591,23 @@ function closeAndRest(idx) {
     renderCourts();
 }
 function getRuleLabel() { return document.getElementById('game-rule').value === 'winner_stay' ? "Fixed Quota" : ""; }
+
+// แก้ฟังก์ชัน renderPlayerOnCourt
 function renderPlayerOnCourt(player, courtIdx, slotIdx) {
     if (!player) {
         return `<div class="player-on-court" style="cursor:pointer; opacity:0.7; background:#f0f0f0; color:#888; border:2px dashed #ccc;" onclick="openManualAddModal(${courtIdx})" title="จิ้มเพื่อเลือกคนลง">
             + ว่าง
         </div>`;
     }
-    const rule = document.getElementById('game-rule').value;
+    
+    // ✨ อ่าน Rule จากคอร์ทโดยตรง
+    const rule = courts[courtIdx].rule || 'normal';
+    
     let badge = (rule === 'winner_stay') ? `<span class="quota-badge" style="background:${player.sessionGames >= 1 ? '#e67e22' : '#27ae60'}">G: ${player.sessionGames + 1}/2</span>` : '';
+    
     return `<div class="player-on-court" title="เปลี่ยนตัว" onclick="kickPlayer(${courtIdx}, ${slotIdx})"><strong>${player.name}</strong><span style="font-size:0.8em; margin-top:2px;">(${player.gamesPlayed}P)</span>${badge}</div>`;
 }
+
 function renderCourtButtons(court, idx) {
     if (!court.isOpened || court.state === 'post_game') return `<button class="secondary" style="width:100%;" disabled>...</button>`;
    
@@ -1117,25 +1141,23 @@ function resolveGame(winningTeamIdx) {
 
         let stayers = [], leavers = [];
        
-        // --- 🔍 จุดที่แก้: เช็คโหมดเกมก่อน! ---
-        const rule = document.getElementById('game-rule').value;
-
+        // ✨ NEW: ดึงกฎจากคอร์ทนี้โดยเฉพาะ
+        const rule = court.rule || 'normal';
 
         if (rule === 'normal') {
-            // โหมด Normal: ออกหมดทุกคน ไม่สนลูกใคร!
+            // โหมด Normal: ออกหมดทุกคน
             leavers.push(...t1, ...t2);
         } else {
             // โหมด Fixed Quota (Winner Stay แบบมีโควต้า 2 เกม)
             const q1 = players.find(x => x.id === t1[0].id).sessionGames;
             const q2 = players.find(x => x.id === t2[0].id).sessionGames;
 
-
             if (q1 < 2 && q2 < 2) {
                 // ถ้าโควต้ายังไม่เต็มทั้งคู่ -> ผู้ชนะอยู่ต่อ, ผู้แพ้ออก
                 if (winningTeamIdx === 0) { stayers.push(...t1); leavers.push(...t2); }
                 else { stayers.push(...t2); leavers.push(...t1); }
             } else {
-                // ถ้ามีใครโควต้าเต็ม (ครบ 2 เกม) -> ต้องออก
+                // ถ้ามีใครโควต้าเต็ม (ครบ 2 เกม) -> ต้องออก (แม้จะเป็นผู้ชนะ)
                 if (q1 >= 2) leavers.push(...t1); else stayers.push(...t1);
                 if (q2 >= 2) leavers.push(...t2); else stayers.push(...t2);
             }
@@ -1878,25 +1900,28 @@ function getAverageGameTime() {
 }
 
 // 3.2 ฟังก์ชันคำนวณเวลารอแบบ Real-time (ตัวใหม่ล่าสุด!)
+// แก้ฟังก์ชัน getWaitTimeForQueue
 function getWaitTimeForQueue(queueIndex) {
     const avgTime = getAverageGameTime(); 
     const now = Date.now();
     
-    // เช็คว่าเล่นโหมด Winner Stay (รับ 2) หรือปกติ (รับ 4)
-    // *แก้ id ให้ตรงกับ <select> ของมึงนะ*
-    const gameRuleSelect = document.getElementById('game-rule'); 
-    const isWinnerStay = gameRuleSelect && (gameRuleSelect.value.includes('2') || gameRuleSelect.value.includes('stay'));
-    const spotsPerCourt = isWinnerStay ? 2 : 4;
-
     // สร้าง Slots ว่าง
     let availableSlots = [];
+    
     courts.forEach(c => {
+        // ✨ เช็ค Rule ของแต่ละคอร์ท
+        const rule = c.rule || 'normal';
+        const isWinnerStay = (rule === 'winner_stay');
+        const spotsPerCourt = isWinnerStay ? 2 : 4; // ถ้า Winner Stay รับได้แค่ 2, ถ้า Normal รับได้ 4
+
         let freeAt = now;
         if (c.gameStartTime) {
             let expected = c.gameStartTime + (avgTime * 60000);
-            if (expected < now) expected = now + 30000; // ถ้าเกินเวลาแล้ว ให้รออีก 30วิ
+            if (expected < now) expected = now + 30000;
             freeAt = expected;
         }
+        
+        // แตก Slot ตามจำนวนที่รับได้ของคอร์ทนั้นๆ
         for (let k = 0; k < spotsPerCourt; k++) {
             availableSlots.push(freeAt);
         }
@@ -1904,7 +1929,7 @@ function getWaitTimeForQueue(queueIndex) {
 
     availableSlots.sort((a, b) => a - b);
 
-    // คำนวณเวลา
+    // ... (ส่วนคำนวณที่เหลือเหมือนเดิมเป๊ะ) ...
     if (queueIndex < availableSlots.length) {
         const mySlotTime = availableSlots[queueIndex];
         return Math.max(0, Math.round((mySlotTime - now) / 60000));
@@ -1917,6 +1942,8 @@ function getWaitTimeForQueue(queueIndex) {
         return Math.max(0, Math.round(waitMs / 60000));
     }
 }
+
+
 </script>
 
 
