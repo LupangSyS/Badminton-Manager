@@ -46,13 +46,14 @@ function loadData() {
         matchLogs = data.matchLogs || [];
         bookingCounter = data.bookingCounter || 0;
        
+        // โหลด Rank Mode
         if (typeof data.rankedMode !== 'undefined') {
             isRankedMode = data.rankedMode;
             const cb = document.getElementById('ranked-mode-toggle');
             if (cb) cb.checked = isRankedMode;
         }
 
-        // Restore Courts
+        // โหลด Courts
         if (data.courts) {
             courts = data.courts.map((c, index) => {
                 c.interval = null;
@@ -61,18 +62,28 @@ function loadData() {
             });
         }
        
-        // Restore Rule
+        // โหลด Rule
         if (data.gameRule) {
             const ruleSelect = document.getElementById('game-rule');
             if(ruleSelect) ruleSelect.value = data.gameRule;
         }
         if (data.completedGameTimes) completedGameTimes = data.completedGameTimes;
 
+        // โหลด MMR Mode
         if (typeof data.mmrMode !== 'undefined') {
             isMMRMode = data.mmrMode;
             const cb = document.getElementById('mmr-mode-toggle');
             if (cb) cb.checked = isMMRMode;
         }
+
+        // 🔥 FIX: ดักคอตรงนี้! ถ้าเปิดทั้งคู่ ให้ปิด Rank ทิ้ง (ถือว่า MMR ใหญ่กว่า)
+        if (isRankedMode && isMMRMode) {
+            console.log("⚠️ เจอเปิดซ้อนกัน! สั่งปิด Rank อัตโนมัติ");
+            isRankedMode = false;
+            const rankCB = document.getElementById('ranked-mode-toggle');
+            if(rankCB) rankCB.checked = false;
+        }
+
         return true;
     } catch (e) {
         console.error("Load Data Error:", e);
@@ -221,8 +232,17 @@ function toggleView(viewName) {
 function toggleRankedMode() {
     const checkbox = document.getElementById('ranked-mode-toggle');
     isRankedMode = checkbox.checked;
-    if (isRankedMode) alert('🏆 เปิดโหมดจัดอันดับ!');
-    else alert('👌 ปิดโหมดจัดอันดับ');
+    
+    // ✨ FIX: ถ้าเปิด Rank ให้ปิด MMR อัตโนมัติ (สลับขั้วกัน)
+    if (isRankedMode) {
+        const mmrCB = document.getElementById('mmr-mode-toggle');
+        if(mmrCB) mmrCB.checked = false;
+        isMMRMode = false;
+        
+        alert('🏆 เปิดโหมดจัดอันดับ! \n(ปิดโหมด MMR แล้ว)');
+    } else {
+        alert('👌 ปิดโหมดจัดอันดับ');
+    }
     updateNextMatchPanel();
     saveData();
 }
