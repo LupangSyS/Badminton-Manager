@@ -23,6 +23,7 @@ function saveData() {
         bookingCounter,
         gameRule: document.getElementById('game-rule').value,
         rankedMode: isRankedMode, // ✨ บันทึกค่านี้
+        mmrMode: isMMRMode, // ✨ บันทึกสถานะปุ่ม
         completedGameTimes // ✨ NEW: บันทึกไปด้วย
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -72,6 +73,11 @@ function loadData() {
         }
         if (data.completedGameTimes) completedGameTimes = data.completedGameTimes; // ✨ NEW
 
+        if (typeof data.mmrMode !== 'undefined') {
+            isMMRMode = data.mmrMode;
+            const cb = document.getElementById('mmr-mode-toggle');
+            if (cb) cb.checked = isMMRMode;
+        }
         return true;
     } catch (e) {
         console.error("Load Data Error:", e);
@@ -243,6 +249,7 @@ let pairingHistory = {};
 let opponentHistory = {}; // ✨ NEW: ตัวแปรจำหน้าศัตรู
 let matchLogs = [];
 let isRankedMode = false; // ✨ NEW: ตัวแปรเก็บสถานะ Ranked Mode
+let isMMRMode = false;
 let completedGameTimes = []; // ✨ NEW: เก็บประวัติเวลาที่ใช้เล่นจริง (หน่วยนาที)
 const DEFAULT_GAME_TIME = 15; // ค่าเริ่มต้น (ถ้ายังไม่มีใครเล่นจบเลย ให้ใช้เลขนี้ไปก่อน)
 
@@ -331,6 +338,22 @@ function toggleRankedMode() {
     saveData(); // บันทึกสถานะลงเครื่อง
 }
 
+function toggleMMRMode() {
+    const checkbox = document.getElementById('mmr-mode-toggle');
+    isMMRMode = checkbox.checked;
+    
+    // ถ้าเปิด MMR ให้ปิด Rank อัตโนมัติ (เพื่อไม่ให้ตีกัน)
+    if (isMMRMode) {
+        document.getElementById('ranked-mode-toggle').checked = false;
+        isRankedMode = false;
+        alert('⚖️ เปิดโหมด MMR! \nระบบจะคำนวณความสมดุลจากแต้ม แพ้/ชนะ \n(กัปตัน = คนรอนานสุดเสมอ)');
+    } else {
+        alert('👌 ปิดโหมด MMR');
+    }
+    updateNextMatchPanel(); 
+    saveData();
+}
+
 // --- LOGIC: MATCHMAKING ---
 function getPairKey(id1, id2) { return id1 < id2 ? `${id1}-${id2}` : `${id2}-${id1}`; }
 function recordPairing(id1, id2) {
@@ -384,6 +407,7 @@ function addPlayers() {
             isFastPass: isFastPass,
             checkInTime: new Date(),
             isResting: false // ✨ เพิ่มบรรทัดนี้: มาถึงต้องตื่นก่อน
+            mmr: 0, // ✨ NEW: เริ่มต้น 0
         });
     });
     input.value = '';
@@ -825,8 +849,10 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
 
     // ✨ คำนวณพลังคู่แข่งรอไว้เลย (ถ้ามี)
     let targetScore = null;
+    let targetMMR = null; // ✨ NEW: เป้าหมาย MMR ของทีมคู่แข่ง
     if (existingPlayers.length > 0) {
         targetScore = existingPlayers.reduce((sum, p) => sum + (RANK_SCORES[p.level||'BG']||1), 0);
+        targetMMR = existingPlayers.reduce((sum, p) => sum + (p.mmr || 0), 0);
     }
 
     // Pity Logic (สำหรับคนรอนานแบบน่าสงสาร)
@@ -834,6 +860,16 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
     if (head && head.skipCount > 0 && !isForce) {
         let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore, false);
         if (team.length === count) return team; 
+    }
+
+// 🔥 LOGIC เลือกกัปตัน
+    // ถ้า MMR Mode -> บังคับเอาหัวแถว (pool[0]) เป็นกัปตันเลย ไม่มีการวนลูปหา
+    if (isMMRMode && !isForce) {
+        let captain = pool[0];
+        // ส่ง targetMMR ไปให้ tryBuildTeam
+        let team = tryBuildTeam(captain, pool, count, existingPlayers, false, targetScore, false, targetMMR);
+        if (team.length === count) return team;
+        return []; // ถ้าหาคู่ให้หัวแถวไม่ได้ ก็จบเลย (รอรอบหน้า หรือรอ Force)
     }
 
     // Normal & Force Logic
@@ -895,13 +931,18 @@ function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], i
         let nextPlayer = null;
        
         if (selected.length % 2 !== 0 && !selected[selected.length-1].bookingId) {
+            // หาคู่หู
             let currentSolo = selected[selected.length - 1];
-            // ✨ ส่ง isForce ไปด้วย
-            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds, existingPlayers, isPity, targetScore, isForce);
+            // ✨ ส่ง targetMMR ไปด้วย
+            nextPlayer = findBestPartnerInfinite(currentSolo, currentPool, usedIds, existingPlayers, isPity, targetScore, isForce, targetMMR);
         } 
         else {
+            // หาคู่แข่ง (ส่ง targetMMR แบบคร่าวๆ ไป หรือปล่อย null)
+            // ถ้า Normal Mode (4 คน) เราอาจจะอยากให้ Team 2 สมดุลกับ Team 1
+            let currentTeamMMR = selected.reduce((s, p) => s + (p.mmr||0), 0);
+            
             const effectiveTeam = [...selected, ...existingPlayers];
-            nextPlayer = findBestOpponentInfinite(effectiveTeam, currentPool, usedIds);
+            nextPlayer = findBestOpponentInfinite(effectiveTeam, currentPool, usedIds, currentTeamMMR);
         }
 
         if (nextPlayer) {
@@ -921,6 +962,7 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
     let minScore = Infinity;
     
     const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
+    const capMMR = captain.mmr || 0; // ✨ MMR กัปตัน
    
     for (let i = 0; i < fullPool.length; i++) {
         const c = fullPool[i];
@@ -928,8 +970,34 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
        
         let finalScore = 0;
 
+// 🔥 LOGIC MMR MODE
+        if (isMMRMode && !isForce) {
+            // 1. Queue Cost: ให้เครดิตคนรอนานนิดนึง (แต่ไม่มากเท่า Force)
+            const queueCost = i * 10; 
+
+            // 2. MMR Balance Cost:
+            let mmrCost = 0;
+            const partnerMMR = c.mmr || 0;
+
+            if (targetMMR !== null) {
+                // กรณีมีเจ้าที่: (MMR กัปตัน + MMR เพื่อน) ควรใกล้เคียง (MMR เจ้าที่)
+                const ourTeamMMR = capMMR + partnerMMR;
+                const diff = Math.abs(ourTeamMMR - targetMMR);
+                mmrCost = diff * 100; // น้ำหนักความห่าง MMR
+            } else {
+                // กรณีสนามว่าง: หาคนที่ MMR ใกล้เคียงกับกัปตัน (จับคู่สมดุล)
+                const diff = Math.abs(capMMR - partnerMMR);
+                mmrCost = diff * 100;
+            }
+
+            // 3. Pair Repeat Cost (ยังคง Logic เดิม: พยายามไม่คู่ซ้ำ)
+            const pairCount = getPairCount(captain.id, c.id);
+            const pairCost = pairCount * 1000000; // ปรับโทษหนักๆ ให้ไปหาคนอื่นก่อน
+
+            finalScore = queueCost + mmrCost + pairCost;
+        }
         // 🔥 กรณี FORCE MODE: สูตร "หยวนๆ แบบมีสมอง"
-        if (isForce) {
+       else if (isForce) {
             // 1. ค่าคิว (Queue Cost): ยิ่งรอนาน (i น้อย) ยิ่งดี
             // คิดเป็นคนละ 1000 แต้ม
             // (ใครมาทีหลัง หรือเพิ่งออก โดนบวกแต้มเยอะ ทำให้ไม่ถูกเลือก)
@@ -1008,10 +1076,22 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds) {
             const opCount = getOpponentCount(member.id, c.id);
             conflictScore += (opCount >= 2) ? 100000000 : (opCount * 1000000);
         });
+        let extraScore = 0;
 
-        // ✨ RANKED LOGIC: เช็คว่า "ศัตรู" ฝีมือห่างกับ "ทีมเรา" ไหม
-        let rankPenalty = 0;
-        if (isRankedMode) {
+        // 🔥 MMR Mode Logic
+        if (isMMRMode) {
+            // ถ้ามีเป้าหมาย (Team 1 MMR) -> หาคนแรกของ Team 2 ให้ (MMR * 2) ใกล้เคียง Team 1
+            // (สมมติว่าคู่หูเขาจะมี MMR ใกล้ๆ กัน)
+            if (targetMMR !== null) {
+                const myMMR = c.mmr || 0;
+                // Heuristic: ลองกะว่าคู่หูเขาจะมี MMR เท่าตัวเขาเอง
+                const projectedTeam2MMR = myMMR * 2; 
+                const diff = Math.abs(projectedTeam2MMR - targetMMR);
+                extraScore = diff * 100;
+            }
+        }
+        
+       else if (isRankedMode) {
             const cScore = RANK_SCORES[c.level || 'BG'] || 1;
             
             // วนลูปเช็คกับทุกคนในทีมปัจจุบัน
@@ -1124,11 +1204,15 @@ function resolveGame(winningTeamIdx) {
             const pl = players.find(x => x.id === p.id);
             if(pl) pl.wins++;
             pl.winStreak = (pl.winStreak || 0) + 1; // ✨ บวกสตรีค
+            pl.mmr = (pl.mmr || 0) + 25;
         });
         losers.forEach(p => {
             const pl = players.find(x => x.id === p.id);
             if(pl) {
                 pl.winStreak = 0; // ✨ ล้างสตรีค
+                // ✨ MMR LOSE
+                pl.mmr = (pl.mmr || 0) - 25;
+                if (pl.mmr < 0) pl.mmr = 0; // ห้ามติดลบ
             }
         });
 
@@ -1223,11 +1307,19 @@ function updateDashboard() {
 
 
     tbody.innerHTML = sorted.map((p, index) => {
+      
         let rank = index + 1;
         let medal = '';
         if (rank === 1) medal = '🥇'; else if (rank === 2) medal = '🥈'; else if (rank === 3) medal = '🥉';
         const rate = p.gamesPlayed > 0 ? Math.round((p.wins / p.gamesPlayed) * 100) : 0;
-        return `<tr><td>${medal} ${rank}</td><td>${p.name}</td><td>${p.gamesPlayed}</td><td>${p.wins}</td><td>${rate}%</td></tr>`;
+        return `<tr>
+        <td>${medal} ${rank}</td>
+        <td>${p.name}</td>
+        <td style="font-weight:bold; color:#2980b9;">${p.mmr || 0}</td>
+        <td>${p.gamesPlayed}</td>
+        <td>${p.wins}</td>
+        <td>${rate}%</td></tr>`;
+        
     }).join('');
 }
 
@@ -1881,7 +1973,7 @@ function getWaitTimeForQueue(queueIndex) {
     const isWinnerStay = gameRuleSelect && (gameRuleSelect.value.includes('2') || gameRuleSelect.value.includes('stay'));
     const spotsPerCourt = isWinnerStay ? 2 : 4;
 
-    
+
     // สร้าง Slots ว่าง
     let availableSlots = [];
     
