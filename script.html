@@ -613,7 +613,7 @@ function closeAndRest(idx) {
     courts[idx].players = []; courts[idx].state = 'empty'; courts[idx].isOpened = false; courts[idx].timer = 0;
     renderCourts();
 }
-function getRuleLabel() { return document.getElementById('game-rule').value === 'winner_stay' ? "Fixed Quota" : ""; }
+
 
 // แก้ฟังก์ชัน renderPlayerOnCourt
 function renderPlayerOnCourt(player, courtIdx, slotIdx) {
@@ -1036,8 +1036,7 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
 }
 
 
-
-// ✅ แก้ไข: เพิ่ม targetMMR และประกาศตัวแปร rankPenalty ให้ถูกต้อง
+// ✅ แก้ไข: ประกาศตัวแปร rankPenalty และ extraScore ให้ครบถ้วน
 function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = null) {
     let best = null;
     let minScore = Infinity;
@@ -1047,25 +1046,28 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = nu
        
         if (usedIds.has(c.id) || c.bookingId) continue;
        
-        // คำนวณความ "หน้าซ้ำ"
+        // 1. คะแนน Conflict (หน้าซ้ำ)
         let conflictScore = 0;
         currentTeam.forEach(member => {
             const opCount = getOpponentCount(member.id, c.id);
             conflictScore += (opCount >= 2) ? 100000000 : (opCount * 1000000);
         });
 
-        let extraScore = 0;
-        let rankPenalty = 0; // ✨ FIX: ประกาศตัวแปรนี้ไว้ตรงนี้ กัน Crash!
+        // ✨ FIX: ประกาศตัวแปรมารรอไว้เลย กัน Crash
+        let extraScore = 0; // สำหรับ MMR
+        let rankPenalty = 0; // สำหรับ Rank
 
         // 🔥 MMR Mode Logic
         if (isMMRMode) {
             if (targetMMR !== null) {
                 const myMMR = c.mmr || 0;
+                // เดาว่าคู่หูเขาจะมี MMR เท่าตัวเขาเอง
                 const projectedTeam2MMR = myMMR * 2; 
                 const diff = Math.abs(projectedTeam2MMR - targetMMR);
                 extraScore = diff * 100;
             }
         }
+        // 🏆 Rank Mode Logic
         else if (isRankedMode) {
             const cScore = RANK_SCORES[c.level || 'BG'] || 1;
             
@@ -1076,12 +1078,12 @@ function findBestOpponentInfinite(currentTeam, fullPool, usedIds, targetMMR = nu
                 if (diff > maxDiff) maxDiff = diff;
             });
 
-            // ✨ FIX: ให้ค่า rankPenalty ที่ประกาศไว้ข้างบน
+            // ใส่ค่าให้ rankPenalty
             if (maxDiff === 1) rankPenalty = 5000000;
             else if (maxDiff >= 2) rankPenalty = 500000000;
         }
 
-        // ✨ FIX: ตอนนี้ rankPenalty มีค่าแล้ว (0 หรือค่าปรับ) ไม่ Error แล้ว
+        // ✨ FIX: รวมคะแนนทั้งหมด (conflict + mmr + rank + queue)
         const totalScore = conflictScore + extraScore + rankPenalty + i;
        
         if (totalScore < minScore) {
