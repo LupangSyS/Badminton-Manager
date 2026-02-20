@@ -108,6 +108,14 @@ const toggleLevel = (id) => {
     p.level = levels[(currentIdx + 1) % levels.length];
     updateQueueDisplay();
 };
+// 👇 เพิ่มระบบเปลี่ยนเพศ
+const toggleGender = (id) => {
+    const p = players.find(x => x.id === id);
+    if (!p) return;
+    p.gender = (p.gender === 'F') ? 'M' : 'F';
+    updateQueueDisplay();
+    saveData();
+};
 
 const RANK_SCORES = { 'P': 4, 'S': 3, 'N': 2, 'BG': 1 };
 
@@ -298,6 +306,7 @@ function addPlayers() {
             id: Date.now() + Math.random(),
             name: cleanName,
             level: 'BG',
+            gender: 'M',
             gamesPlayed: 0,
             wins: 0,
             status: 'waiting',
@@ -308,7 +317,7 @@ function addPlayers() {
             isFastPass: isFastPass,
             checkInTime: new Date(),
             isResting: false,
-            mmr: 0
+            mmr: 100
         });
     });
     input.value = '';
@@ -449,13 +458,21 @@ function renderCourts() {
         container.innerHTML += `
             <div class="court" id="court-${index}">
                 <div class="court-lines"></div><div class="service-line-top"></div><div class="service-line-bottom"></div>
-                <div class="court-header" style="position: relative; z-index: 10;">
-                    <div style="display:flex; align-items:center; width:100%;">
-                        <span onclick="editCourtName(${index})" style="cursor:pointer; white-space:nowrap;">${displayName} ✏️</span>
-                        ${rankFilterHTML}
-                        ${ruleSelectHTML}
-                    </div>
-                </div>
+            
+            <div class="court-header" style="position: relative; z-index: 10; padding-bottom: 4px;"> 
+              <div style="display:flex; flex-direction: column; width:100%;"> 
+              <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span onclick="editCourtName(${index})" style="cursor:pointer; white-space:nowrap; font-weight:bold; margin-right: 5px;">${displayName} ✏️</span>
+                ${ruleSelectHTML}
+              </div>
+        
+              <div style="width: 100%;">
+             ${rankFilterHTML}
+              </div>
+
+              </div>
+             </div>
+            
                 ${overlayHTML}
                 <div class="court-players">
                     <div class="team team-pink">${renderPlayerOnCourt(court.players[0], index, 0)}${renderPlayerOnCourt(court.players[1], index, 1)}</div>
@@ -620,7 +637,6 @@ const fillCourtQueue = (courtIdx) => {
     }
 };
 
-// 👇 แก้ Signature เพิ่ม rankFilter = null
 function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isForce = false, rankFilter = null) {
     let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
     
@@ -639,10 +655,44 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
     if (pool.length === 0) return [];
 
-    // ... (ส่วนที่เหลือของฟังก์ชัน เหมือนเดิมเป๊ะ ไม่ต้องแตะ!) ...
     let targetScore = null, targetMMR = null;
     if (existingPlayers.length > 0) {
-    // ... (logic ยาวๆ ข้างล่าง ปล่อยไว้เหมือนเดิม) ...
+        targetScore = existingPlayers.reduce((sum, p) => sum + (RANK_SCORES[p.level||'BG']||1), 0);
+        targetMMR = existingPlayers.reduce((sum, p) => sum + (p.mmr || 0), 0);
+    }
+
+    const head = pool[0];
+    if (head && head.skipCount > 0 && !isForce) {
+        let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore, false, targetMMR);
+        if (team.length === count) return team; 
+    }
+
+    if (isMMRMode && !isForce) {
+        let captain = pool[0];
+        let team = tryBuildTeam(captain, pool, count, existingPlayers, false, targetScore, false, targetMMR);
+        if (team.length === count) return team;
+        return [];
+    }
+
+    for (let i = 0; i < pool.length; i++) {
+        let captain = pool[i];
+        if (!isForce && isRankedMode && existingPlayers.length > 0) {
+             const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
+             let isCompatible = true;
+             for(let ex of existingPlayers) {
+                 const exScore = RANK_SCORES[ex.level || 'BG'] || 1;
+                 if (Math.abs(capScore - exScore) >= 2) { isCompatible = false; break; }
+             }
+             if (!isCompatible) continue; 
+        }
+        let team = tryBuildTeam(captain, pool, count, existingPlayers, false, targetScore, isForce, targetMMR); 
+        if (team.length === count) {
+            if (count === 4 && !isForce) return autoBalanceTeam(team);
+            return team;
+        }
+    }
+    return [];
+}
 
 function tryBuildTeam(captain, currentPool, targetCount, existingPlayers = [], isPity = false, targetScore = null, isForce = false, targetMMR = null) {
     let selected = []; let usedIds = new Set();
@@ -674,10 +724,13 @@ function findBestPartnerInfinite(captain, fullPool, usedIds, rankCheckList = [],
     let best = null; let minScore = Infinity;
     const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
     const capMMR = captain.mmr || 0;
+    const capGender = captain.gender || 'M'; // 👈 เช็คเพศกัปตัน
    
     for (let i = 0; i < fullPool.length; i++) {
         const c = fullPool[i];
         if (c.id === captain.id || usedIds.has(c.id) || c.bookingId) continue;
+        const cGender = c.gender || 'M';
+        if (capGender === 'F' && cGender === 'F') continue;
         let finalScore = 0;
 
         if (isMMRMode && !isForce) {
@@ -1018,9 +1071,17 @@ function updateQueueDisplay() {
         const lv = p.level || 'BG';
         const lvColor = LEVEL_COLORS[lv] || '#bdbdbd';
         const levelBadge = `<span onclick="toggleLevel(${p.id})" style="cursor:pointer; background:${lvColor}; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-right:5px;">${lv}</span>`;
+        const genderIcon = (p.gender === 'F') ? '♀️' : '♂️';
+        const genderBadge = `<span onclick="toggleGender(${p.id})" style="cursor:pointer; font-size:1.1em; margin-right:5px; background:rgba(255,255,255,0.5); border-radius:50%; padding:0 2px;" title="คลิกสลับเพศ">${genderIcon}</span>`;
+
         const waitBadge = !p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray;">(พัก)</small>';
 
-        return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge : ''}<strong>${namePrefix}${p.name}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
+        return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge + genderBadge : ''}<strong>${namePrefix}${p.name}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
+        const waitBadge = !p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray;">(พัก)</small>';
+
+        return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge : ''}<strong>${namePrefix}${p.name}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button>
+        
+        <button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
     }).join('');
     updateNextMatchPanel();
 }

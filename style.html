@@ -107,7 +107,7 @@ button.mini-btn { padding: 2px 6px; font-size: 0.75em; margin-left: auto; }
 
 /* Court Card */
 .court {
-    height: 380px; 
+    height: 430px; /* 👈 แก้ตรงนี้จุดเดียว! เปลี่ยนจาก 380px เป็น 430px */
     background-color: var(--court-bg);
     border: 3px solid #27ae60; position: relative; border-radius: 12px;
     display: flex; flex-direction: column; box-shadow: 0 8px 20px rgba(0,0,0,0.1);
@@ -303,13 +303,14 @@ body.view-mode .court-header { background: #2c3e50; color: white; border-radius:
 .rank-filter-container {
     display: flex;
     align-items: center;
+    justify-content: center; /* จัดกึ่งกลาง */
     gap: 4px;
     font-size: 0.75em;
-    background: rgba(255,255,255,0.3);
-    padding: 2px 6px;
+    background: rgba(255,255,255,0.4); /* เข้มขึ้นนิดนึง */
+    padding: 3px 2px;
     border-radius: 4px;
-    margin-left: auto; /* ดันไปขวาสุด */
-    margin-right: 5px;
+    width: 100%; /* ขยายเต็มความกว้าง */
+    box-sizing: border-box; /* กัน padding ล้น */
 }
 .rank-select {
     border: none;
