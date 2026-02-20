@@ -108,7 +108,7 @@ const toggleLevel = (id) => {
     p.level = levels[(currentIdx + 1) % levels.length];
     updateQueueDisplay();
 };
-// 👇 เพิ่มระบบเปลี่ยนเพศ
+
 const toggleGender = (id) => {
     const p = players.find(x => x.id === id);
     if (!p) return;
@@ -1071,17 +1071,14 @@ function updateQueueDisplay() {
         const lv = p.level || 'BG';
         const lvColor = LEVEL_COLORS[lv] || '#bdbdbd';
         const levelBadge = `<span onclick="toggleLevel(${p.id})" style="cursor:pointer; background:${lvColor}; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-right:5px;">${lv}</span>`;
+        
+        // สัญลักษณ์เพศ
         const genderIcon = (p.gender === 'F') ? '♀️' : '♂️';
         const genderBadge = `<span onclick="toggleGender(${p.id})" style="cursor:pointer; font-size:1.1em; margin-right:5px; background:rgba(255,255,255,0.5); border-radius:50%; padding:0 2px;" title="คลิกสลับเพศ">${genderIcon}</span>`;
 
         const waitBadge = !p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray;">(พัก)</small>';
 
         return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge + genderBadge : ''}<strong>${namePrefix}${p.name}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
-        const waitBadge = !p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray;">(พัก)</small>';
-
-        return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge : ''}<strong>${namePrefix}${p.name}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button>
-        
-        <button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
     }).join('');
     updateNextMatchPanel();
 }
