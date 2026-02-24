@@ -31,6 +31,11 @@ function saveData() {
         completedGameTimes
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    // 👇 เพิ่มการ Sync ไป Google Sheets (รันแบบ Background ไม่กระทบจังหวะกด)
+    if (typeof google !== 'undefined' && google.script) {
+        google.script.run.syncPlayersToDB(JSON.stringify(players));
+    }
 }
 
 function loadData() {
@@ -185,6 +190,7 @@ let pairingHistory = {};
 let opponentHistory = {};
 let matchLogs = [];
 let isRankedMode = false;
+let isAntiDejaVuMode = false;
 let isMMRMode = false;
 let completedGameTimes = [];
 const DEFAULT_GAME_TIME = 15;
@@ -269,6 +275,14 @@ function toggleMMRMode() {
     }
     updateNextMatchPanel(); 
     saveData();
+}
+
+// 👇 ฟังก์ชันเปิดปิดโหมดผี
+function toggleAntiDejaVuMode() {
+    const checkbox = document.getElementById('antidejavu-mode-toggle');
+    isAntiDejaVuMode = checkbox.checked;
+    if (isAntiDejaVuMode) alert('👻 เปิดโหมดหนีเจ้ากรรมนายเวร!\n(ระบบจะพยายามไม่ให้เจอคนหน้าเดิมซ้ำๆ และคนโดนข้ามคิวจะได้สิทธิ์ลงคอร์ทถัดไปทันที)');
+    else alert('👌 ปิดโหมดหนีเจ้ากรรมนายเวร');
 }
 
 function getPairKey(id1, id2) { return id1 < id2 ? `${id1}-${id2}` : `${id2}-${id1}`; }
@@ -640,7 +654,6 @@ const fillCourtQueue = (courtIdx) => {
 function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isForce = false, rankFilter = null) {
     let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
     
-    // 👇 เพิ่ม Logic กรอง Rank ตรงนี้เลย
     if (rankFilter) {
         const minIdx = RANK_LEVELS.indexOf(rankFilter.min);
         const maxIdx = RANK_LEVELS.indexOf(rankFilter.max);
@@ -650,7 +663,6 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
             return pIdx >= minIdx && pIdx <= maxIdx;
         });
     }
-    // ------------------------------------
 
     pool.sort((a, b) => a.joinedQueueAt - b.joinedQueueAt); 
     if (pool.length === 0) return [];
@@ -662,7 +674,9 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
     }
 
     const head = pool[0];
-    if (head && head.skipCount > 0 && !isForce) {
+    
+    // 🚨 กฎเหล็ก Anti-Starvation: ถ้า C โดนสคิปมาแล้ว (skipCount >= 1) บังคับลงทันที ห้ามสคิปซ้ำ! 🚨
+    if (head && head.skipCount >= 1 && !isForce) {
         let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore, false, targetMMR);
         if (team.length === count) return team; 
     }
@@ -674,6 +688,43 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
         return [];
     }
 
+    // 👻 โหมดหนีเจ้ากรรมนายเวร (Anti-Deja Vu)
+    if (typeof isAntiDejaVuMode !== 'undefined' && isAntiDejaVuMode && existingPlayers.length > 0 && !isForce) {
+        // ดึง 4 คิวแรกมาพิจารณา
+        let candidates = pool.slice(0, 4);
+        
+        // เรียงลำดับตามคนที่ "เคยเจอพวกที่อยู่ในสนามน้อยที่สุด" (ยิ่งน้อยยิ่งได้เป็นกัปตันก่อน)
+        candidates.sort((a, b) => {
+            let conflictA = 0; existingPlayers.forEach(ex => conflictA += getOpponentCount(a.id, ex.id));
+            let conflictB = 0; existingPlayers.forEach(ex => conflictB += getOpponentCount(b.id, ex.id));
+            
+            // ถ้า conflict เท่ากัน ให้วัดกันที่คิวใครมาก่อน
+            if (conflictA !== conflictB) return conflictA - conflictB;
+            return a.joinedQueueAt - b.joinedQueueAt; 
+        });
+
+        for (let i = 0; i < candidates.length; i++) {
+            let captain = candidates[i];
+            
+            // เช็ค Rank กรณีที่เปิด Ranked Mode ซ้อนกันไว้
+            if (isRankedMode) {
+                 const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
+                 let isCompatible = true;
+                 for(let ex of existingPlayers) {
+                     const exScore = RANK_SCORES[ex.level || 'BG'] || 1;
+                     if (Math.abs(capScore - exScore) >= 2) { isCompatible = false; break; }
+                 }
+                 if (!isCompatible) continue; 
+            }
+            let team = tryBuildTeam(captain, pool, count, existingPlayers, false, targetScore, isForce, targetMMR);
+            if (team.length === count) {
+                if (count === 4) return autoBalanceTeam(team);
+                return team;
+            }
+        }
+    }
+
+    // --- โหมดปกติ (ไล่จากคิวแรกตามเดิม) ---
     for (let i = 0; i < pool.length; i++) {
         let captain = pool[i];
         if (!isForce && isRankedMode && existingPlayers.length > 0) {
@@ -864,13 +915,30 @@ function resolveGame(winningTeamIdx) {
             }
         }
 
-        matchLogs.unshift({
+// สร้าง Log โชว์หน้าเว็บ
+        const newLog = {
             time: new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'}),
             court: activeGameResolveCourtId+1,
             winners: winners.map(p=>p.name).join(', '),
             losers: losers.map(p=>p.name).join(', '),
             duration: formatTime(court.timer),
-        });
+        };
+        matchLogs.unshift(newLog);
+
+        // 👇 ส่งข้อมูลไปบันทึกลง Sheet (แท็บ DB_MatchLogs)
+        if (typeof google !== 'undefined' && google.script) {
+            const sheetLog = {
+                logId: Date.now(),
+                date: new Date().toLocaleString('th-TH'),
+                courtName: court.customName || `คอร์ท ${activeGameResolveCourtId + 1}`,
+                winners: newLog.winners,
+                losers: newLog.losers,
+                duration: newLog.duration,
+                rule: court.rule || 'normal'
+            };
+            google.script.run.appendMatchLogToDB(JSON.stringify(sheetLog));
+        }
+        
         court.gameStartTime = null; 
         renderMatchLog();
        
@@ -1009,6 +1077,19 @@ function updateCost() {
 }
 
 function endSession() {
+    // 👇 ส่งข้อมูลบิลรวมไปเก็บลง Sheet (แท็บ DB_Session) ก่อนโหลดรูป
+    if (typeof google !== 'undefined' && google.script) {
+        const sessionData = {
+            date: new Date().toLocaleDateString('th-TH'),
+            totalPlayers: players.length,
+            totalMatches: matchLogs.length,
+            shuttlesUsed: parseFloat(document.getElementById('calc-shuttle-used').value) || 0,
+            totalCost: parseFloat(document.getElementById('total-cost-display').innerText.replace(/,/g, '')) || 0
+        };
+        google.script.run.appendSessionToDB(JSON.stringify(sessionData));
+    }
+
+    // แคปรูปตามเดิม
     const element = document.getElementById("summary-capture-area");
     html2canvas(element).then(canvas => {
         const link = document.createElement('a');
@@ -1073,7 +1154,7 @@ function updateQueueDisplay() {
         const levelBadge = `<span onclick="toggleLevel(${p.id})" style="cursor:pointer; background:${lvColor}; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-right:5px;">${lv}</span>`;
         
         // สัญลักษณ์เพศ
-        const genderIcon = (p.gender === 'F') ? '♀️' : '♂️';
+        const genderIcon = (p.gender === 'F') ? '👩' : '👨';
         const genderBadge = `<span onclick="toggleGender(${p.id})" style="cursor:pointer; font-size:1.1em; margin-right:5px; background:rgba(255,255,255,0.5); border-radius:50%; padding:0 2px;" title="คลิกสลับเพศ">${genderIcon}</span>`;
 
         const waitBadge = !p.isResting ? `<span class="wait-badge ${badgeClass}">${badgeText}</span>` : '<small style="color:gray;">(พัก)</small>';
